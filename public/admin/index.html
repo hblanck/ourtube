@@ -176,17 +176,26 @@
           <input type="text" name="name" class="form-input" placeholder="e.g. Family Videos" required />
         </div>
         <div class="form-group">
-          <label class="form-label">Path <span style="color:red">*</span></label>
-          <input type="text" name="path" class="form-input" placeholder="/media/nas/videos" required />
-          <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
-            <button type="button" class="btn btn-secondary btn-small" onclick="openPathBrowser()">Browse /media</button>
-            <span style="font-size:12px;color:#888">Choose an existing directory under <code>/media</code></span>
+          <label class="form-label">Collection Entries <span style="color:red">*</span></label>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <input type="text" id="location-entry-path" class="form-input" style="flex:1;min-width:280px" placeholder="/media/nas/videos or /media/nas/videos/file.mp4" />
+            <select id="location-entry-type" class="form-select" style="max-width:140px">
+              <option value="directory">Folder</option>
+              <option value="file">File</option>
+            </select>
+            <button type="button" class="btn btn-secondary btn-small" onclick="addEntryFromInput()">Add</button>
           </div>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap">
+            <button type="button" class="btn btn-secondary btn-small" onclick="openPathBrowser(null, 'directory')">Browse Folder</button>
+            <button type="button" class="btn btn-secondary btn-small" onclick="openPathBrowser(null, 'file')">Browse File</button>
+            <span style="font-size:12px;color:#888">Mix folders and individual files under <code>/media</code></span>
+          </div>
+          <div id="location-entries-list" style="margin-top:8px"></div>
           <div id="path-browser" class="path-browser" style="display:none">
             <div class="path-browser-header">
               <strong id="path-browser-current"></strong>
               <div style="display:flex;gap:8px">
-                <button type="button" class="btn btn-small" onclick="selectCurrentBrowserPath()">Use This Folder</button>
+                <button type="button" class="btn btn-small" id="path-browser-use-current" onclick="selectCurrentBrowserPath()">Use This Folder</button>
                 <button type="button" class="btn btn-small" onclick="closePathBrowser()">Close</button>
               </div>
             </div>
@@ -424,6 +433,51 @@
   }
 
   // ── Locations ────────────────────────────────────────────
+  let locationEntries = [];
+
+  function renderLocationEntries() {
+    const el = document.getElementById('location-entries-list');
+    if (!el) return;
+
+    if (!locationEntries.length) {
+      el.innerHTML = '<div class="path-browser-note">No entries yet. Add at least one folder or file.</div>';
+      return;
+    }
+
+    el.innerHTML = locationEntries.map((entry, idx) => {
+      const badge = entry.type === 'file'
+        ? '<span style="background:#2563eb;color:#fff;border-radius:4px;padding:1px 6px;font-size:11px">File</span>'
+        : '<span style="background:#16a34a;color:#fff;border-radius:4px;padding:1px 6px;font-size:11px">Folder</span>';
+      return `<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid #eee;border-radius:6px;margin-bottom:6px;background:#fafafa">
+        ${badge}
+        <code style="font-size:12px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(entry.path)}</code>
+        <button type="button" class="btn btn-small" style="color:#b91c1c" onclick="removeLocationEntry(${idx})">Remove</button>
+      </div>`;
+    }).join('');
+  }
+
+  function addLocationEntry(entryPath, entryType) {
+    const cleanPath = String(entryPath || '').trim();
+    if (!cleanPath) return;
+    const cleanType = entryType === 'file' ? 'file' : 'directory';
+    const key = cleanPath.toLowerCase();
+    if (locationEntries.some(e => e.path.toLowerCase() === key)) return;
+    locationEntries.push({ path: cleanPath, type: cleanType });
+    renderLocationEntries();
+  }
+
+  function removeLocationEntry(index) {
+    locationEntries.splice(index, 1);
+    renderLocationEntries();
+  }
+
+  function addEntryFromInput() {
+    const pathInput = document.getElementById('location-entry-path');
+    const typeInput = document.getElementById('location-entry-type');
+    addLocationEntry(pathInput.value, typeInput.value);
+    pathInput.value = '';
+  }
+
   async function loadLocations() {
     const tbody = document.getElementById('locations-tbody');
     tbody.innerHTML = '<tr><td colspan="7" style="color:#aaa;text-align:center">Loading…</td></tr>';
@@ -436,7 +490,7 @@
     tbody.innerHTML = locs.map(l => `
       <tr>
         <td><strong>${escHtml(l.name)}</strong></td>
-        <td><code style="font-size:12px">${escHtml(l.path)}</code></td>
+        <td><code style="font-size:12px">${escHtml((l.entries && l.entries[0] && l.entries[0].path) || l.path)}${(l.entries && l.entries.length > 1) ? ` (+${l.entries.length - 1} more)` : ''}</code></td>
         <td>${escHtml(l.type)}</td>
         <td>${l.enabled ? '✅' : '❌'}</td>
         <td>${l.scan_interval}s</td>
@@ -454,7 +508,10 @@
     const form = document.getElementById('location-form');
     form.reset();
     form.querySelector('[name=id]').value = '';
-    form.querySelector('[name=path]').value = '/media';
+    locationEntries = [];
+    renderLocationEntries();
+    document.getElementById('location-entry-path').value = '/media';
+    document.getElementById('location-entry-type').value = 'directory';
     closePathBrowser();
     openModal('location-modal');
   }
@@ -468,22 +525,30 @@
     const form = document.getElementById('location-form');
     form.querySelector('[name=id]').value = loc.id;
     form.querySelector('[name=name]').value = loc.name;
-    form.querySelector('[name=path]').value = loc.path;
     form.querySelector('[name=type]').value = loc.type;
     form.querySelector('[name=scan_interval]').value = loc.scan_interval;
     form.querySelector('[name=enabled]').checked = !!loc.enabled;
+    locationEntries = Array.isArray(loc.entries) && loc.entries.length
+      ? loc.entries.map(entry => ({ path: entry.path, type: entry.type === 'file' ? 'file' : 'directory' }))
+      : [{ path: loc.path, type: 'directory' }];
+    renderLocationEntries();
+    document.getElementById('location-entry-path').value = '';
+    document.getElementById('location-entry-type').value = 'directory';
     closePathBrowser();
     openModal('location-modal');
   }
 
   // /media path browser for source location picker
   let pathBrowserCurrent = '/media';
+  let pathBrowserSelectType = 'directory';
 
-  async function openPathBrowser(startPath) {
+  async function openPathBrowser(startPath, selectType = 'directory') {
     const browser = document.getElementById('path-browser');
     browser.style.display = 'block';
-    const pathInput = document.querySelector('#location-form [name=path]');
-    const targetPath = startPath || pathInput.value || '/media';
+    pathBrowserSelectType = selectType === 'file' ? 'file' : 'directory';
+    const useBtn = document.getElementById('path-browser-use-current');
+    useBtn.textContent = pathBrowserSelectType === 'file' ? 'Use Current Path as File' : 'Use This Folder';
+    const targetPath = startPath || pathBrowserCurrent || '/media';
     await loadPathBrowser(targetPath);
   }
 
@@ -536,6 +601,22 @@
           list.appendChild(btn);
         });
       }
+
+      if (Array.isArray(data.files) && data.files.length) {
+        const fileHeader = document.createElement('div');
+        fileHeader.className = 'path-browser-note';
+        fileHeader.textContent = 'Media files';
+        list.appendChild(fileHeader);
+
+        data.files.forEach(file => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'path-browser-item';
+          btn.textContent = `📄 ${file.name}`;
+          btn.addEventListener('click', () => addLocationEntry(file.path, 'file'));
+          list.appendChild(btn);
+        });
+      }
     } catch (err) {
       current.textContent = targetPath;
       list.innerHTML = `<div class="path-browser-error">${escHtml(err.message || 'Failed to browse directory')}</div>`;
@@ -543,8 +624,7 @@
   }
 
   function selectCurrentBrowserPath() {
-    const pathInput = document.querySelector('#location-form [name=path]');
-    pathInput.value = pathBrowserCurrent;
+    addLocationEntry(pathBrowserCurrent, pathBrowserSelectType);
     closePathBrowser();
   }
 
@@ -552,9 +632,17 @@
     e.preventDefault();
     const form = e.target;
     const id = form.querySelector('[name=id]').value;
+    const entries = locationEntries
+      .map(entry => ({ path: String(entry.path || '').trim(), type: entry.type === 'file' ? 'file' : 'directory' }))
+      .filter(entry => entry.path);
+    if (!entries.length) {
+      alert('Please add at least one folder or file for this collection.');
+      return;
+    }
     const body = {
       name: form.querySelector('[name=name]').value,
-      path: form.querySelector('[name=path]').value,
+      path: entries[0].path,
+      entries,
       type: form.querySelector('[name=type]').value,
       scan_interval: parseInt(form.querySelector('[name=scan_interval]').value),
       enabled: form.querySelector('[name=enabled]').checked ? 1 : 0
@@ -569,9 +657,15 @@
   });
 
   async function deleteLocation(id) {
-    if (!confirm('Delete this source location? (Media index entries remain)')) return;
-    await fetch(`/api/admin/locations/${id}`, { method: 'DELETE' });
+    if (!confirm('Delete this collection and remove all indexed assets from it?')) return;
+    const res = await fetch(`/api/admin/locations/${id}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Delete failed');
+    if (typeof data.removedMedia === 'number') {
+      alert(`Collection removed. Deleted ${data.removedMedia} indexed items.`);
+    }
     loadLocations();
+    loadDashboard();
   }
 
   async function scanLocation(id) {

@@ -92,6 +92,27 @@ function isMediaFile(filePath) {
   return VIDEO_EXTENSIONS.has(ext) || PHOTO_EXTENSIONS.has(ext);
 }
 
+function getLocationEntries(location) {
+  const db = getDb();
+  const entries = db.prepare(
+    `SELECT entry_path, entry_type
+     FROM source_location_entries
+     WHERE source_location_id = ?
+     ORDER BY id ASC`
+  ).all(location.id);
+
+  if (entries.length) {
+    return entries.map(entry => ({ path: entry.entry_path, type: entry.entry_type }));
+  }
+
+  // Backward compatibility for locations created before multi-entry support.
+  if (location.path) {
+    return [{ path: location.path, type: 'directory' }];
+  }
+
+  return [];
+}
+
 function walkDir(dirPath, locationId) {
   const results = [];
   let entries;
@@ -239,15 +260,49 @@ async function indexFile(filePath, locationId) {
 }
 
 async function scanLocation(location) {
-  scanInfo(`[scanner] Scanning location: ${location.name} (${location.path})`);
+  const entries = getLocationEntries(location);
+  scanInfo(`[scanner] Scanning location: ${location.name} (${entries.length} path entries)`);
 
-  if (!fs.existsSync(location.path)) {
-    scanWarn(`[scanner] Path does not exist: ${location.path}`);
-    return { found: 0, indexed: 0, errors: 0 };
+  const fileSet = new Set();
+  for (const entry of entries) {
+    if (!entry.path) continue;
+
+    if (!fs.existsSync(entry.path)) {
+      scanWarn(`[scanner] Path does not exist: ${entry.path}`);
+      continue;
+    }
+
+    let stat;
+    try {
+      stat = fs.statSync(entry.path);
+    } catch (err) {
+      scanWarn(`[scanner] Cannot stat path ${entry.path}: ${err.message}`);
+      continue;
+    }
+
+    const entryType = entry.type || (stat.isFile() ? 'file' : 'directory');
+    if (entryType === 'file' || stat.isFile()) {
+      const skipReason = getSkipReason(path.basename(entry.path), false);
+      if (skipReason) {
+        scanStatus.filesSkipped++;
+        recordSkippedFile(entry.path, skipReason, location.id);
+        continue;
+      }
+      if (isMediaFile(entry.path)) {
+        fileSet.add(entry.path);
+      } else {
+        scanStatus.filesSkipped++;
+        recordSkippedFile(entry.path, 'unsupported media file extension', location.id);
+      }
+      continue;
+    }
+
+    const foundFiles = walkDir(entry.path, location.id);
+    for (const filePath of foundFiles) fileSet.add(filePath);
   }
 
-  const files = walkDir(location.path, location.id);
-  scanInfo(`[scanner] Found ${files.length} media files in ${location.path}`);
+  const files = Array.from(fileSet);
+  scanInfo(`[scanner] Found ${files.length} media files in ${location.name}`);
 
   let indexed = 0;
   let errors = 0;

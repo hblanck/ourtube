@@ -28,6 +28,15 @@ function initDb() {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS source_location_entries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source_location_id INTEGER NOT NULL REFERENCES source_locations(id) ON DELETE CASCADE,
+      entry_path TEXT NOT NULL,
+      entry_type TEXT NOT NULL CHECK(entry_type IN ('directory', 'file')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(source_location_id, entry_path)
+    );
+
     CREATE TABLE IF NOT EXISTS media (
       id TEXT PRIMARY KEY,
       source_location_id INTEGER REFERENCES source_locations(id) ON DELETE SET NULL,
@@ -86,6 +95,7 @@ function initDb() {
     CREATE INDEX IF NOT EXISTS idx_faces_media_id ON faces(media_id);
     CREATE INDEX IF NOT EXISTS idx_faces_person_name ON faces(person_name);
     CREATE INDEX IF NOT EXISTS idx_skipped_files_last_seen ON skipped_files(last_seen_at);
+    CREATE INDEX IF NOT EXISTS idx_location_entries_location_id ON source_location_entries(source_location_id);
   `);
 
   // Insert default settings if not present

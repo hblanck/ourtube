@@ -9,6 +9,10 @@ const { getActiveSessions } = require('../sessions');
 
 const router = express.Router();
 const MEDIA_ROOT = path.resolve('/media');
+const MEDIA_FILE_EXTENSIONS = new Set([
+  'mp4', 'mkv', 'avi', 'mov', 'wmv', 'flv', 'webm', 'm4v', 'mpg', 'mpeg', '3gp',
+  'jpg', 'jpeg', 'png', 'gif', 'bmp', 'tiff', 'tif', 'heic', 'webp', 'raw', 'arw', 'cr2', 'nef'
+]);
 
 function toPosixPath(p) {
   return p.replace(/\\/g, '/');
@@ -17,6 +21,69 @@ function toPosixPath(p) {
 function isWithinMediaRoot(targetPath) {
   const rel = path.relative(MEDIA_ROOT, targetPath);
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
+function isMediaFilePath(filePath) {
+  const ext = path.extname(filePath).toLowerCase().replace('.', '');
+  return MEDIA_FILE_EXTENSIONS.has(ext);
+}
+
+function normalizeEntriesInput(entries, fallbackPath) {
+  const raw = Array.isArray(entries)
+    ? entries
+    : (typeof fallbackPath === 'string' && fallbackPath.trim()
+      ? [{ path: fallbackPath.trim(), type: 'directory' }]
+      : []);
+
+  const seen = new Set();
+  const normalized = [];
+
+  for (const entry of raw) {
+    const entryPath = String(entry?.path || '').trim();
+    if (!entryPath) continue;
+
+    const key = entryPath.toLowerCase();
+    if (seen.has(key)) continue;
+
+    const requestedType = String(entry?.type || '').toLowerCase();
+    let entryType = requestedType === 'file' || requestedType === 'directory' ? requestedType : 'directory';
+
+    try {
+      const stat = fs.statSync(entryPath);
+      entryType = stat.isFile() ? 'file' : 'directory';
+    } catch {
+      // Keep requested type for paths that are currently unavailable.
+    }
+
+    seen.add(key);
+    normalized.push({ path: entryPath, type: entryType });
+  }
+
+  return normalized;
+}
+
+function getLocationsWithEntries(db) {
+  const locations = db.prepare('SELECT * FROM source_locations ORDER BY created_at DESC').all();
+  const entryRows = db.prepare(
+    `SELECT source_location_id, entry_path, entry_type
+     FROM source_location_entries
+     ORDER BY id ASC`
+  ).all();
+
+  const byLocation = new Map();
+  for (const row of entryRows) {
+    const list = byLocation.get(row.source_location_id) || [];
+    list.push({ path: row.entry_path, type: row.entry_type });
+    byLocation.set(row.source_location_id, list);
+  }
+
+  return locations.map(location => {
+    const entries = byLocation.get(location.id) || [];
+    if (!entries.length && location.path) {
+      entries.push({ path: location.path, type: 'directory' });
+    }
+    return { ...location, entries };
+  });
 }
 
 // GET /api/admin/media-root/browse?path=/media/subdir
@@ -48,13 +115,23 @@ router.get('/media-root/browse', (req, res) => {
       })
       .sort((a, b) => a.name.localeCompare(b.name));
 
+    const files = fs.readdirSync(absolutePath, { withFileTypes: true })
+      .filter(entry => entry.isFile())
+      .map(entry => {
+        const filePath = path.join(absolutePath, entry.name);
+        return { name: entry.name, path: toPosixPath(filePath) };
+      })
+      .filter(file => isMediaFilePath(file.path))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
     const parentPath = absolutePath === MEDIA_ROOT ? null : path.dirname(absolutePath);
 
     res.json({
       root: toPosixPath(MEDIA_ROOT),
       current: toPosixPath(absolutePath),
       parent: parentPath && isWithinMediaRoot(parentPath) ? toPosixPath(parentPath) : null,
-      directories
+      directories,
+      files
     });
   } catch (err) {
     console.error('[admin] Failed to browse media root:', err);
@@ -65,7 +142,7 @@ router.get('/media-root/browse', (req, res) => {
 // GET /api/admin/locations
 router.get('/locations', (req, res) => {
   const db = getDb();
-  res.json(db.prepare('SELECT * FROM source_locations ORDER BY created_at DESC').all());
+  res.json(getLocationsWithEntries(db));
 });
 
 // GET /api/admin/skipped-files
@@ -101,42 +178,123 @@ router.get('/skipped-files', (req, res) => {
 // POST /api/admin/locations
 router.post('/locations', (req, res) => {
   const db = getDb();
-  const { name, path: locPath, type = 'both', scan_interval = 3600 } = req.body;
-  if (!name || !locPath) return res.status(400).json({ error: 'name and path are required' });
+  const { name, path: locPath, entries, type = 'both', scan_interval = 3600 } = req.body;
+  const normalizedEntries = normalizeEntriesInput(entries, locPath);
+  if (!name || !normalizedEntries.length) {
+    return res.status(400).json({ error: 'name and at least one path entry are required' });
+  }
 
-  const result = db.prepare(
-    'INSERT INTO source_locations (name, path, type, scan_interval) VALUES (?, ?, ?, ?)'
-  ).run(name, locPath, type, scan_interval);
+  const createTx = db.transaction(() => {
+    const firstPath = normalizedEntries[0].path;
+    const result = db.prepare(
+      'INSERT INTO source_locations (name, path, type, scan_interval) VALUES (?, ?, ?, ?)'
+    ).run(name, firstPath, type, scan_interval);
 
-  res.status(201).json(db.prepare('SELECT * FROM source_locations WHERE id = ?').get(result.lastInsertRowid));
+    const locationId = Number(result.lastInsertRowid);
+    const insertEntry = db.prepare(
+      'INSERT INTO source_location_entries (source_location_id, entry_path, entry_type) VALUES (?, ?, ?)'
+    );
+
+    for (const entry of normalizedEntries) {
+      insertEntry.run(locationId, entry.path, entry.type);
+    }
+
+    return locationId;
+  });
+
+  const locationId = createTx();
+  const location = getLocationsWithEntries(db).find(row => row.id === locationId);
+  res.status(201).json(location);
 });
 
 // PUT /api/admin/locations/:id
 router.put('/locations/:id', (req, res) => {
   const db = getDb();
-  const { name, path: locPath, type, scan_interval, enabled } = req.body;
+  const { name, path: locPath, entries, type, scan_interval, enabled } = req.body;
   const loc = db.prepare('SELECT * FROM source_locations WHERE id = ?').get(req.params.id);
   if (!loc) return res.status(404).json({ error: 'Not found' });
 
-  db.prepare(
-    `UPDATE source_locations SET
-      name = COALESCE(?, name),
-      path = COALESCE(?, path),
-      type = COALESCE(?, type),
-      scan_interval = COALESCE(?, scan_interval),
-      enabled = COALESCE(?, enabled)
-    WHERE id = ?`
-  ).run(name ?? null, locPath ?? null, type ?? null, scan_interval ?? null, enabled ?? null, req.params.id);
+  const hasEntriesPayload = Array.isArray(entries) || (typeof locPath === 'string' && locPath.trim());
+  const normalizedEntries = hasEntriesPayload ? normalizeEntriesInput(entries, locPath) : null;
+  if (hasEntriesPayload && !normalizedEntries.length) {
+    return res.status(400).json({ error: 'at least one path entry is required' });
+  }
 
-  res.json(db.prepare('SELECT * FROM source_locations WHERE id = ?').get(req.params.id));
+  const updateTx = db.transaction(() => {
+    const nextPath = normalizedEntries?.[0]?.path || loc.path;
+    db.prepare(
+      `UPDATE source_locations SET
+        name = COALESCE(?, name),
+        path = ?,
+        type = COALESCE(?, type),
+        scan_interval = COALESCE(?, scan_interval),
+        enabled = COALESCE(?, enabled)
+      WHERE id = ?`
+    ).run(name ?? null, nextPath, type ?? null, scan_interval ?? null, enabled ?? null, req.params.id);
+
+    if (normalizedEntries) {
+      db.prepare('DELETE FROM source_location_entries WHERE source_location_id = ?').run(req.params.id);
+      const insertEntry = db.prepare(
+        'INSERT INTO source_location_entries (source_location_id, entry_path, entry_type) VALUES (?, ?, ?)'
+      );
+      for (const entry of normalizedEntries) {
+        insertEntry.run(req.params.id, entry.path, entry.type);
+      }
+    }
+  });
+
+  updateTx();
+  const location = getLocationsWithEntries(db).find(row => row.id === Number(req.params.id));
+  res.json(location);
 });
 
 // DELETE /api/admin/locations/:id
 router.delete('/locations/:id', (req, res) => {
   const db = getDb();
-  const result = db.prepare('DELETE FROM source_locations WHERE id = ?').run(req.params.id);
-  if (!result.changes) return res.status(404).json({ error: 'Not found' });
-  res.json({ success: true });
+  const locationId = parseInt(req.params.id, 10);
+  if (!Number.isInteger(locationId)) return res.status(400).json({ error: 'Invalid id' });
+
+  const loc = db.prepare('SELECT id FROM source_locations WHERE id = ?').get(locationId);
+  if (!loc) return res.status(404).json({ error: 'Not found' });
+
+  const mediaRows = db.prepare(
+    'SELECT id, thumbnail_path FROM media WHERE source_location_id = ?'
+  ).all(locationId);
+
+  const faceRows = db.prepare(
+    `SELECT f.face_thumbnail_path
+       FROM faces f
+       JOIN media m ON m.id = f.media_id
+      WHERE m.source_location_id = ?`
+  ).all(locationId);
+
+  const deleteTx = db.transaction(() => {
+    db.prepare('DELETE FROM media WHERE source_location_id = ?').run(locationId);
+    db.prepare('DELETE FROM skipped_files WHERE source_location_id = ?').run(locationId);
+    db.prepare('DELETE FROM source_locations WHERE id = ?').run(locationId);
+  });
+
+  deleteTx();
+
+  // Best-effort cleanup for generated assets stored on disk.
+  const filesToDelete = [
+    ...mediaRows.map(r => r.thumbnail_path),
+    ...faceRows.map(r => r.face_thumbnail_path),
+  ].filter(Boolean);
+
+  for (const filePath of filesToDelete) {
+    try {
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    } catch (err) {
+      console.warn('[admin] Failed to delete derived asset:', filePath, err.message);
+    }
+  }
+
+  res.json({
+    success: true,
+    removedMedia: mediaRows.length,
+    removedDerivedFiles: filesToDelete.length,
+  });
 });
 
 // POST /api/admin/locations/:id/scan
