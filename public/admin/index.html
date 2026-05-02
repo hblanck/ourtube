@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin – OurTube</title>
+  <link rel="stylesheet" href="/css/main.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <a href="/" class="logo">📺 OurTube</a>
+      <span style="flex:1"></span>
+      <nav class="header-nav">
+        <a href="/" class="nav-link">🎬 Videos</a>
+        <a href="/photos.html" class="nav-link">📷 Photos</a>
+        <a href="/admin/" class="nav-link active">⚙️ Admin</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="admin-layout">
+    <nav class="admin-nav">
+      <div class="admin-nav-title">Admin</div>
+      <a class="admin-nav-link active" data-tab="dashboard">📊 Dashboard</a>
+      <a class="admin-nav-link" data-tab="locations">📁 Source Locations</a>
+      <a class="admin-nav-link" data-tab="library">🗂 Media Library</a>
+      <a class="admin-nav-link" data-tab="settings">⚙️ Settings</a>
+    </nav>
+
+    <div class="admin-content">
+      <!-- Dashboard -->
+      <section class="admin-section active" id="tab-dashboard">
+        <h2>Dashboard</h2>
+
+        <div class="stats-cards" id="stats-cards">
+          <div class="stat-card"><div class="stat-value" id="stat-total">–</div><div class="stat-label">Total Items</div></div>
+          <div class="stat-card"><div class="stat-value" id="stat-videos">–</div><div class="stat-label">Videos</div></div>
+          <div class="stat-card"><div class="stat-value" id="stat-photos">–</div><div class="stat-label">Photos</div></div>
+          <div class="stat-card"><div class="stat-value" id="stat-size">–</div><div class="stat-label">Total Size</div></div>
+          <div class="stat-card"><div class="stat-value" id="stat-faces">–</div><div class="stat-label">Faces Detected</div></div>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+          <span id="scan-status-badge" class="scan-status idle"><span class="scan-dot"></span> Idle</span>
+          <button class="btn btn-primary" onclick="triggerFullScan()">▶ Scan All Locations</button>
+          <span id="scan-info" style="font-size:12px;color:#888"></span>
+        </div>
+      </section>
+
+      <!-- Source Locations -->
+      <section class="admin-section" id="tab-locations">
+        <h2>Source Locations</h2>
+        <div style="margin-bottom:16px">
+          <button class="btn btn-primary" onclick="openAddLocation()">+ Add Location</button>
+        </div>
+        <table class="data-table" id="locations-table">
+          <thead>
+            <tr>
+              <th>Name</th><th>Path</th><th>Type</th><th>Enabled</th>
+              <th>Scan Interval</th><th>Last Scanned</th><th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="locations-tbody"></tbody>
+        </table>
+      </section>
+
+      <!-- Media Library -->
+      <section class="admin-section" id="tab-library">
+        <h2>Media Library</h2>
+        <div style="display:flex;gap:10px;margin-bottom:16px;">
+          <input type="search" id="library-search" class="form-input" placeholder="Search…" style="max-width:300px" />
+          <select id="library-type" class="form-select" style="max-width:140px">
+            <option value="">All Types</option>
+            <option value="video">Videos</option>
+            <option value="photo">Photos</option>
+          </select>
+        </div>
+        <table class="data-table" id="library-table">
+          <thead>
+            <tr>
+              <th>Name</th><th>Type</th><th>Year</th><th>Location</th>
+              <th>Duration</th><th>Size</th><th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="library-tbody"></tbody>
+        </table>
+        <div id="library-pagination" style="margin-top:12px;display:flex;gap:8px;align-items:center;font-size:13px"></div>
+      </section>
+
+      <!-- Settings -->
+      <section class="admin-section" id="tab-settings">
+        <h2>Settings</h2>
+        <form id="settings-form" style="max-width:480px">
+          <div class="form-group">
+            <label class="form-label">Face Detection</label>
+            <select name="face_detection_enabled" class="form-select">
+              <option value="false">Disabled</option>
+              <option value="true">Enabled</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Thumbnail Width (px)</label>
+            <input type="number" name="thumbnail_width" class="form-input" min="100" max="1920" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Thumbnail Height (px)</label>
+            <input type="number" name="thumbnail_height" class="form-input" min="100" max="1080" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Scan on Startup</label>
+            <select name="scan_on_startup" class="form-select">
+              <option value="false">No</option>
+              <option value="true">Yes</option>
+            </select>
+          </div>
+          <button type="submit" class="btn btn-primary">Save Settings</button>
+        </form>
+        <p id="settings-msg" style="margin-top:12px;font-size:13px;color:green;display:none">Settings saved!</p>
+      </section>
+    </div>
+  </div>
+
+  <!-- Add/Edit Location Modal -->
+  <div class="modal-overlay" id="location-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title" id="location-modal-title">Add Source Location</div>
+        <button class="modal-close" onclick="closeModal('location-modal')">✕</button>
+      </div>
+      <form id="location-form">
+        <input type="hidden" name="id" />
+        <div class="form-group">
+          <label class="form-label">Name <span style="color:red">*</span></label>
+          <input type="text" name="name" class="form-input" placeholder="e.g. Family Videos" required />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Path <span style="color:red">*</span></label>
+          <input type="text" name="path" class="form-input" placeholder="/media/nas/videos" required />
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Media Type</label>
+            <select name="type" class="form-select">
+              <option value="both">Both</option>
+              <option value="video">Videos only</option>
+              <option value="photo">Photos only</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Scan Interval (seconds)</label>
+            <input type="number" name="scan_interval" class="form-input" value="3600" min="60" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" name="enabled" value="1" checked />
+            Enabled
+          </label>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('location-modal')">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Edit Media Modal -->
+  <div class="modal-overlay" id="media-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title">Edit Media</div>
+        <button class="modal-close" onclick="closeModal('media-modal')">✕</button>
+      </div>
+      <form id="media-form">
+        <input type="hidden" name="id" />
+        <div class="form-group">
+          <label class="form-label">Display Name</label>
+          <input type="text" name="friendly_name" class="form-input" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Description</label>
+          <textarea name="description" class="form-textarea"></textarea>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Year</label>
+            <input type="number" name="year" class="form-input" min="1900" max="2100" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Location</label>
+            <input type="text" name="location" class="form-input" placeholder="City, Country" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Tags (comma separated)</label>
+          <input type="text" name="tags" class="form-input" placeholder="family, vacation, 2023" />
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">People / Faces</label>
+          <div id="face-list-edit" style="margin-bottom:8px"></div>
+          <div style="display:flex;gap:8px">
+            <input type="text" id="face-name-input" class="form-input" placeholder="Person name" />
+            <button type="button" class="btn btn-secondary" onclick="addFace()">Add</button>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-danger btn-small" onclick="deleteMedia()">Delete from Index</button>
+          <button type="button" class="btn btn-secondary" onclick="closeModal('media-modal')">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+  'use strict';
+  // ── Utilities ────────────────────────────────────────────
+  function escHtml(s) {
+    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+  function fmtSize(b) {
+    if (!b) return '—';
+    const gb = b/1e9; if (gb>=1) return gb.toFixed(1)+' GB';
+    return (b/1e6).toFixed(0)+' MB';
+  }
+  function fmtDur(s) {
+    if (!s) return '—';
+    const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=Math.floor(s%60);
+    return h?`${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`:`${m}:${String(sec).padStart(2,'0')}`;
+  }
+  function fmtDate(s) { try { return s ? new Date(s).toLocaleString() : '—'; } catch { return s||'—'; } }
+
+  function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+  function openModal(id) { document.getElementById(id).classList.add('open'); }
+
+  // Close modal on backdrop click
+  document.querySelectorAll('.modal-overlay').forEach(el => {
+    el.addEventListener('click', e => { if (e.target === el) el.classList.remove('open'); });
+  });
+
+  // ── Tabs ─────────────────────────────────────────────────
+  document.querySelectorAll('.admin-nav-link').forEach(link => {
+    link.addEventListener('click', () => {
+      document.querySelectorAll('.admin-nav-link').forEach(l => l.classList.remove('active'));
+      document.querySelectorAll('.admin-section').forEach(s => s.classList.remove('active'));
+      link.classList.add('active');
+      document.getElementById('tab-' + link.dataset.tab).classList.add('active');
+
+      if (link.dataset.tab === 'locations') loadLocations();
+      if (link.dataset.tab === 'library') { libPage = 1; loadLibrary(); }
+      if (link.dataset.tab === 'settings') loadSettings();
+    });
+  });
+
+  // Open tab from URL query
+  const urlParams = new URLSearchParams(location.search);
+  const editId = urlParams.get('edit');
+  if (editId) {
+    document.querySelector('[data-tab="library"]').click();
+    openMediaEdit(editId);
+  }
+
+  // ── Dashboard ────────────────────────────────────────────
+  async function loadDashboard() {
+    try {
+      const res = await fetch('/api/stats');
+      const s = await res.json();
+      document.getElementById('stat-total').textContent = s.total.toLocaleString();
+      document.getElementById('stat-videos').textContent = s.videos.toLocaleString();
+      document.getElementById('stat-photos').textContent = s.photos.toLocaleString();
+      document.getElementById('stat-size').textContent = fmtSize(s.totalSize);
+      document.getElementById('stat-faces').textContent = s.faces.toLocaleString();
+    } catch(e) { console.error(e); }
+
+    pollScanStatus();
+  }
+
+  let scanPollTimer = null;
+  async function pollScanStatus() {
+    clearTimeout(scanPollTimer);
+    try {
+      const res = await fetch('/api/admin/scan/status');
+      const s = await res.json();
+      const badge = document.getElementById('scan-status-badge');
+      const info = document.getElementById('scan-info');
+      if (s.inProgress) {
+        badge.className = 'scan-status running';
+        badge.innerHTML = '<span class="scan-dot"></span> Scanning…';
+        info.textContent = `Found: ${s.filesFound} · Indexed: ${s.filesIndexed} · Errors: ${s.errors}`;
+        scanPollTimer = setTimeout(pollScanStatus, 2000);
+      } else {
+        badge.className = 'scan-status idle';
+        badge.innerHTML = '<span class="scan-dot"></span> Idle';
+        info.textContent = s.lastRun ? `Last run: ${fmtDate(s.lastRun)} · Found: ${s.filesFound} · Indexed: ${s.filesIndexed}` : '';
+      }
+    } catch { /* ignore */ }
+  }
+
+  async function triggerFullScan() {
+    await fetch('/api/admin/scan/all', { method: 'POST' });
+    pollScanStatus();
+  }
+
+  // ── Locations ────────────────────────────────────────────
+  async function loadLocations() {
+    const tbody = document.getElementById('locations-tbody');
+    tbody.innerHTML = '<tr><td colspan="7" style="color:#aaa;text-align:center">Loading…</td></tr>';
+    const res = await fetch('/api/admin/locations');
+    const locs = await res.json();
+    if (!locs.length) {
+      tbody.innerHTML = '<tr><td colspan="7" style="color:#aaa;text-align:center">No source locations. Add one above.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = locs.map(l => `
+      <tr>
+        <td><strong>${escHtml(l.name)}</strong></td>
+        <td><code style="font-size:12px">${escHtml(l.path)}</code></td>
+        <td>${escHtml(l.type)}</td>
+        <td>${l.enabled ? '✅' : '❌'}</td>
+        <td>${l.scan_interval}s</td>
+        <td style="font-size:12px">${l.last_scanned ? fmtDate(l.last_scanned) : 'Never'}</td>
+        <td>
+          <button class="btn btn-small" onclick="openEditLocation(${l.id})">Edit</button>
+          <button class="btn btn-small" onclick="scanLocation(${l.id})">Scan</button>
+          <button class="btn btn-small" style="color:red" onclick="deleteLocation(${l.id})">Delete</button>
+        </td>
+      </tr>`).join('');
+  }
+
+  function openAddLocation() {
+    document.getElementById('location-modal-title').textContent = 'Add Source Location';
+    const form = document.getElementById('location-form');
+    form.reset();
+    form.querySelector('[name=id]').value = '';
+    openModal('location-modal');
+  }
+
+  async function openEditLocation(id) {
+    const res = await fetch('/api/admin/locations');
+    const locs = await res.json();
+    const loc = locs.find(l => l.id === id);
+    if (!loc) return;
+    document.getElementById('location-modal-title').textContent = 'Edit Source Location';
+    const form = document.getElementById('location-form');
+    form.querySelector('[name=id]').value = loc.id;
+    form.querySelector('[name=name]').value = loc.name;
+    form.querySelector('[name=path]').value = loc.path;
+    form.querySelector('[name=type]').value = loc.type;
+    form.querySelector('[name=scan_interval]').value = loc.scan_interval;
+    form.querySelector('[name=enabled]').checked = !!loc.enabled;
+    openModal('location-modal');
+  }
+
+  document.getElementById('location-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const form = e.target;
+    const id = form.querySelector('[name=id]').value;
+    const body = {
+      name: form.querySelector('[name=name]').value,
+      path: form.querySelector('[name=path]').value,
+      type: form.querySelector('[name=type]').value,
+      scan_interval: parseInt(form.querySelector('[name=scan_interval]').value),
+      enabled: form.querySelector('[name=enabled]').checked ? 1 : 0
+    };
+    if (id) {
+      await fetch(`/api/admin/locations/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    } else {
+      await fetch('/api/admin/locations', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    }
+    closeModal('location-modal');
+    loadLocations();
+  });
+
+  async function deleteLocation(id) {
+    if (!confirm('Delete this source location? (Media index entries remain)')) return;
+    await fetch(`/api/admin/locations/${id}`, { method: 'DELETE' });
+    loadLocations();
+  }
+
+  async function scanLocation(id) {
+    await fetch(`/api/admin/locations/${id}/scan`, { method: 'POST' });
+    pollScanStatus();
+    alert('Scan started!');
+  }
+
+  // ── Media Library ─────────────────────────────────────────
+  let libPage = 1;
+  let libTotal = 0;
+  const libLimit = 20;
+
+  async function loadLibrary() {
+    const tbody = document.getElementById('library-tbody');
+    tbody.innerHTML = '<tr><td colspan="7" style="color:#aaa;text-align:center">Loading…</td></tr>';
+
+    const q = document.getElementById('library-search').value;
+    const type = document.getElementById('library-type').value;
+    const params = new URLSearchParams({ page: libPage, limit: libLimit });
+    if (q) params.set('search', q);
+    if (type) params.set('type', type);
+
+    const res = await fetch('/api/media?' + params.toString());
+    const data = await res.json();
+    libTotal = data.total;
+
+    if (!data.items.length) {
+      tbody.innerHTML = '<tr><td colspan="7" style="color:#aaa;text-align:center">No items found.</td></tr>';
+      document.getElementById('library-pagination').innerHTML = '';
+      return;
+    }
+
+    tbody.innerHTML = data.items.map(m => `
+      <tr>
+        <td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+          <strong>${escHtml(m.friendly_name || m.file_name)}</strong>
+        </td>
+        <td>${m.type === 'video' ? '🎬' : '📷'} ${m.type}</td>
+        <td>${m.year || '—'}</td>
+        <td>${m.location ? escHtml(m.location) : '—'}</td>
+        <td>${fmtDur(m.duration)}</td>
+        <td>${fmtSize(m.size)}</td>
+        <td>
+          <button class="btn btn-small" onclick="openMediaEdit('${escHtml(m.id)}')">Edit</button>
+          <a class="btn btn-small" href="/watch.html?id=${escHtml(m.id)}" target="_blank">View</a>
+        </td>
+      </tr>`).join('');
+
+    // Pagination
+    const totalPages = Math.ceil(libTotal / libLimit);
+    const pag = document.getElementById('library-pagination');
+    pag.innerHTML = `
+      <button class="btn btn-secondary btn-small" onclick="libGo(${libPage-1})" ${libPage<=1?'disabled':''}>← Prev</button>
+      <span>Page ${libPage} of ${totalPages} (${libTotal} items)</span>
+      <button class="btn btn-secondary btn-small" onclick="libGo(${libPage+1})" ${libPage>=totalPages?'disabled':''}>Next →</button>`;
+  }
+
+  function libGo(p) { libPage = p; loadLibrary(); }
+
+  let libSearchTimer;
+  document.getElementById('library-search').addEventListener('input', () => {
+    clearTimeout(libSearchTimer);
+    libSearchTimer = setTimeout(() => { libPage = 1; loadLibrary(); }, 300);
+  });
+  document.getElementById('library-type').addEventListener('change', () => { libPage = 1; loadLibrary(); });
+
+  // Edit media modal
+  let currentMediaId = null;
+  let currentFaces = [];
+
+  async function openMediaEdit(id) {
+    currentMediaId = id;
+    currentFaces = [];
+
+    const res = await fetch(`/api/media/${id}`);
+    const m = await res.json();
+
+    const form = document.getElementById('media-form');
+    form.querySelector('[name=id]').value = m.id;
+    form.querySelector('[name=friendly_name]').value = m.friendly_name || '';
+    form.querySelector('[name=description]').value = m.description || '';
+    form.querySelector('[name=year]').value = m.year || '';
+    form.querySelector('[name=location]').value = m.location || '';
+    const tags = Array.isArray(m.tags) ? m.tags : [];
+    form.querySelector('[name=tags]').value = tags.join(', ');
+
+    currentFaces = m.faces || [];
+    renderFaceList();
+
+    openModal('media-modal');
+  }
+
+  function renderFaceList() {
+    const el = document.getElementById('face-list-edit');
+    el.innerHTML = currentFaces.map(f => `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <span class="face-chip">${escHtml(f.person_name || '(unnamed)')}</span>
+        <button type="button" class="btn btn-small" style="color:red;padding:2px 8px"
+          onclick="removeFace(${f.id})">✕</button>
+      </div>`).join('') || '<p style="font-size:12px;color:#aaa">No people tagged yet.</p>';
+  }
+
+  async function addFace() {
+    const input = document.getElementById('face-name-input');
+    const name = input.value.trim();
+    if (!name || !currentMediaId) return;
+    const res = await fetch(`/api/admin/media/${currentMediaId}/faces`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ person_name: name })
+    });
+    const face = await res.json();
+    currentFaces.push(face);
+    renderFaceList();
+    input.value = '';
+  }
+
+  async function removeFace(faceId) {
+    await fetch(`/api/admin/faces/${faceId}`, { method: 'DELETE' });
+    currentFaces = currentFaces.filter(f => f.id !== faceId);
+    renderFaceList();
+  }
+
+  document.getElementById('media-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const form = e.target;
+    const id = form.querySelector('[name=id]').value;
+    const rawTags = form.querySelector('[name=tags]').value;
+    const tags = rawTags.split(',').map(t => t.trim()).filter(Boolean);
+
+    const body = {
+      friendly_name: form.querySelector('[name=friendly_name]').value,
+      description: form.querySelector('[name=description]').value,
+      year: form.querySelector('[name=year]').value ? parseInt(form.querySelector('[name=year]').value) : null,
+      location: form.querySelector('[name=location]').value,
+      tags
+    };
+
+    await fetch(`/api/admin/media/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+
+    closeModal('media-modal');
+    loadLibrary();
+  });
+
+  async function deleteMedia() {
+    if (!currentMediaId) return;
+    if (!confirm('Remove this item from the index? (Source file will NOT be deleted)')) return;
+    await fetch(`/api/admin/media/${currentMediaId}`, { method: 'DELETE' });
+    closeModal('media-modal');
+    loadLibrary();
+  }
+
+  // ── Settings ─────────────────────────────────────────────
+  async function loadSettings() {
+    const res = await fetch('/api/admin/settings');
+    const settings = await res.json();
+    const form = document.getElementById('settings-form');
+    for (const [key, value] of Object.entries(settings)) {
+      const el = form.querySelector(`[name="${key}"]`);
+      if (el) el.value = value;
+    }
+  }
+
+  document.getElementById('settings-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const form = e.target;
+    const body = {};
+    new FormData(form).forEach((v, k) => { body[k] = v; });
+    await fetch('/api/admin/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const msg = document.getElementById('settings-msg');
+    msg.style.display = 'block';
+    setTimeout(() => { msg.style.display = 'none'; }, 3000);
+  });
+
+  // ── Init ─────────────────────────────────────────────────
+  loadDashboard();
+  </script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300">
+  <rect width="400" height="300" fill="#1a1a1a"/>
+  <text x="200" y="155" font-family="sans-serif" font-size="48" fill="#444" text-anchor="middle">▶</text>
+  <text x="200" y="190" font-family="sans-serif" font-size="14" fill="#666" text-anchor="middle">No thumbnail</text>
+</svg>
