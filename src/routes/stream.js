@@ -7,6 +7,7 @@ const mime = require('mime-types');
 const sharp = require('sharp');
 const ffmpeg = require('fluent-ffmpeg');
 const { getDb } = require('../db');
+const { registerSession, addBytes, removeSession } = require('../sessions');
 
 const DATA_DIR = process.env.DATA_DIR || '/data';
 const router = express.Router();
@@ -48,6 +49,14 @@ router.get('/:id/transcode', (req, res) => {
   const filePath = row.file_path;
   if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found on disk' });
 
+  const sessionId = registerSession({
+    mediaId: row.id,
+    title: row.title || path.basename(filePath),
+    type: 'transcode',
+    ip: req.ip || req.socket?.remoteAddress || 'unknown',
+    userAgent: req.headers['user-agent'] || '',
+  });
+
   res.writeHead(200, {
     'Content-Type': 'video/mp4',
     'Cache-Control': 'no-store',
@@ -66,6 +75,7 @@ router.get('/:id/transcode', (req, res) => {
       '-max_muxing_queue_size 1024'
     ])
     .on('error', err => {
+      removeSession(sessionId);
       if (!res.headersSent) {
         res.status(500).json({ error: 'Transcode failed' });
       } else {
@@ -75,6 +85,7 @@ router.get('/:id/transcode', (req, res) => {
     });
 
   req.on('close', () => {
+    removeSession(sessionId);
     try { cmd.kill('SIGKILL'); } catch { /* ignore */ }
   });
 
@@ -96,6 +107,14 @@ router.get('/:id', (req, res) => {
   const mimeType = getStreamMimeType(row, filePath);
   const range = req.headers.range;
 
+  const sessionId = registerSession({
+    mediaId: row.id,
+    title: row.title || path.basename(filePath),
+    type: 'direct',
+    ip: req.ip || req.socket?.remoteAddress || 'unknown',
+    userAgent: req.headers['user-agent'] || '',
+  });
+
   if (range) {
     const parts = range.replace(/bytes=/, '').split('-');
     const start = parseInt(parts[0], 10);
@@ -109,15 +128,22 @@ router.get('/:id', (req, res) => {
       'Content-Type': mimeType
     });
 
-    fs.createReadStream(filePath, { start, end }).pipe(res);
+    const fileStream = fs.createReadStream(filePath, { start, end });
+    fileStream.on('data', chunk => addBytes(sessionId, chunk.length));
+    fileStream.pipe(res);
   } else {
     res.writeHead(200, {
       'Content-Length': fileSize,
       'Content-Type': mimeType,
       'Accept-Ranges': 'bytes'
     });
-    fs.createReadStream(filePath).pipe(res);
+    const fileStream = fs.createReadStream(filePath);
+    fileStream.on('data', chunk => addBytes(sessionId, chunk.length));
+    fileStream.pipe(res);
   }
+
+  req.on('close', () => removeSession(sessionId));
+  res.on('finish', () => removeSession(sessionId));
 });
 
 module.exports = router;

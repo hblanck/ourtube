@@ -51,6 +51,28 @@
           <div style="font-size:12px;font-weight:600;color:#666;margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em">Scan Output</div>
           <pre id="scan-output" style="background:#0f172a;color:#c7d2fe;border-radius:8px;padding:12px;max-height:260px;overflow:auto;font-size:12px;line-height:1.4;white-space:pre-wrap;word-break:break-word">No scan output yet.</pre>
         </div>
+
+        <div style="margin-bottom:8px;">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+            <div style="font-size:12px;font-weight:600;color:#666;text-transform:uppercase;letter-spacing:.04em">Active Sessions</div>
+            <span id="sessions-count" style="font-size:12px;color:#aaa"></span>
+          </div>
+          <div id="sessions-table-wrap">
+            <table class="data-table" id="sessions-table">
+              <thead><tr>
+                <th>Client IP</th>
+                <th>User Agent</th>
+                <th>Media</th>
+                <th>Type</th>
+                <th>Started</th>
+                <th>Data Sent</th>
+              </tr></thead>
+              <tbody id="sessions-tbody">
+                <tr><td colspan="6" style="color:#aaa;text-align:center">No active sessions</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </section>
 
       <!-- Source Locations -->
@@ -316,9 +338,11 @@
     } catch(e) { console.error(e); }
 
     pollScanStatus();
+    pollActiveSessions();
   }
 
   let scanPollTimer = null;
+  let scanWasInProgress = false;
   async function pollScanStatus() {
     clearTimeout(scanPollTimer);
     try {
@@ -335,12 +359,26 @@
         badge.innerHTML = '<span class="scan-dot"></span> Scanning…';
         info.textContent = `Found: ${s.filesFound} · Indexed: ${s.filesIndexed} · Skipped: ${s.filesSkipped || 0} · Errors: ${s.errors}`;
         scanPollTimer = setTimeout(pollScanStatus, 2000);
+        scanWasInProgress = true;
       } else {
         badge.className = 'scan-status idle';
         badge.innerHTML = '<span class="scan-dot"></span> Idle';
         info.textContent = s.lastRun
           ? `Last run: ${fmtDate(s.lastRun)} · Found: ${s.filesFound} · Indexed: ${s.filesIndexed} · Skipped: ${s.filesSkipped || 0} · Errors: ${s.errors}`
           : '';
+        // Refresh stats cards when scan just finished
+        if (scanWasInProgress) {
+          scanWasInProgress = false;
+          try {
+            const sr = await fetch('/api/stats');
+            const st = await sr.json();
+            document.getElementById('stat-total').textContent = st.total.toLocaleString();
+            document.getElementById('stat-videos').textContent = st.videos.toLocaleString();
+            document.getElementById('stat-photos').textContent = st.photos.toLocaleString();
+            document.getElementById('stat-size').textContent = fmtSize(st.totalSize);
+            document.getElementById('stat-faces').textContent = st.faces.toLocaleString();
+          } catch { /* ignore */ }
+        }
       }
     } catch { /* ignore */ }
   }
@@ -348,6 +386,41 @@
   async function triggerFullScan() {
     await fetch('/api/admin/scan/all', { method: 'POST' });
     pollScanStatus();
+  }
+
+  // ── Active Sessions ──────────────────────────────────────
+  let sessionsPollTimer = null;
+  async function pollActiveSessions() {
+    clearTimeout(sessionsPollTimer);
+    try {
+      const res = await fetch('/api/admin/active-sessions');
+      const sessions = await res.json();
+      const tbody = document.getElementById('sessions-tbody');
+      const countEl = document.getElementById('sessions-count');
+      countEl.textContent = sessions.length ? `(${sessions.length} active)` : '';
+      if (!sessions.length) {
+        tbody.innerHTML = '<tr><td colspan="6" style="color:#aaa;text-align:center">No active sessions</td></tr>';
+      } else {
+        tbody.innerHTML = sessions.map(s => {
+          const elapsed = Math.floor((Date.now() - s.startedAt) / 1000);
+          const elapsedStr = elapsed < 60 ? `${elapsed}s` : `${Math.floor(elapsed/60)}m ${elapsed%60}s`;
+          const ua = s.userAgent || '—';
+          const uaShort = ua.length > 60 ? ua.slice(0, 60) + '…' : ua;
+          const typeBadge = s.type === 'transcode'
+            ? '<span style="background:#7c3aed;color:#fff;border-radius:4px;padding:1px 6px;font-size:11px">Transcode</span>'
+            : '<span style="background:#0d9488;color:#fff;border-radius:4px;padding:1px 6px;font-size:11px">Direct</span>';
+          return `<tr>
+            <td><code style="font-size:12px">${escHtml(s.ip)}</code></td>
+            <td title="${escHtml(ua)}" style="font-size:12px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(uaShort)}</td>
+            <td style="font-size:12px"><a href="/watch.html?id=${encodeURIComponent(s.mediaId)}" target="_blank">${escHtml(s.title)}</a></td>
+            <td>${typeBadge}</td>
+            <td style="font-size:12px">${elapsedStr} ago</td>
+            <td style="font-size:12px">${fmtSize(s.bytesSent)}</td>
+          </tr>`;
+        }).join('');
+      }
+    } catch { /* ignore */ }
+    sessionsPollTimer = setTimeout(pollActiveSessions, 5000);
   }
 
   // ── Locations ────────────────────────────────────────────

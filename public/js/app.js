@@ -180,12 +180,17 @@
     const isVideo = item.type === 'video';
     const name = escHtml(item.friendly_name || item.file_name);
 
+    const collectionName = !currentFilters.source_location_id && item.source_location_id
+      ? (sourceLocationLabels[String(item.source_location_id)] || null)
+      : null;
+
     card.innerHTML = `
       <div class="card-thumb-wrap">
         <img class="card-thumb" src="${thumb}" alt="${name}" loading="lazy"
              onerror="this.src='/img/no-thumb.svg'" />
         ${isVideo && item.duration ? `<span class="card-duration">${fmtDur(item.duration)}</span>` : ''}
         <span class="card-type-badge">${isVideo ? '🎬' : '📷'}</span>
+        ${collectionName ? `<span class="card-collection-badge">${escHtml(collectionName)}</span>` : ''}
       </div>
       <div class="card-info">
         <div class="card-title">${name}</div>

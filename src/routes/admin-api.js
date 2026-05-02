@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const { getDb } = require('../db');
 const { scanLocation, scanAllLocations, getScanStatus } = require('../scanner');
+const { getActiveSessions } = require('../sessions');
 
 const router = express.Router();
 const MEDIA_ROOT = path.resolve('/media');
@@ -157,6 +158,11 @@ router.post('/scan/all', async (req, res) => {
 // GET /api/admin/scan/status
 router.get('/scan/status', (req, res) => {
   res.json(getScanStatus());
+});
+
+// GET /api/admin/active-sessions
+router.get('/active-sessions', (req, res) => {
+  res.json(getActiveSessions());
 });
 
 // PUT /api/admin/media/:id
