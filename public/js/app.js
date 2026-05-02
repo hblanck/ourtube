@@ -8,6 +8,14 @@
   let loading = false;
   let hasMore = true;
   let currentFilters = { type: FORCE_TYPE || '', year: '', location: '', sort: 'indexed_at' };
+  const sortLabels = {
+    indexed_at: 'Date Added',
+    created_at: 'Date Created',
+    friendly_name: 'Name',
+    view_count: 'Most Viewed',
+    duration: 'Duration',
+    size: 'Size'
+  };
 
   // ── Utility ──────────────────────────────────────────────
   function escHtml(str) {
@@ -32,6 +40,85 @@
     if (gb >= 1) return gb.toFixed(1) + ' GB';
     const mb = bytes / 1e6;
     return mb.toFixed(0) + ' MB';
+  }
+
+  function setRadioValue(name, value) {
+    document.querySelectorAll(`input[name="${name}"]`).forEach(input => {
+      input.checked = input.value === value;
+    });
+  }
+
+  function syncFilterControls() {
+    setRadioValue('type', currentFilters.type);
+    setRadioValue('year', currentFilters.year);
+    setRadioValue('location', currentFilters.location);
+
+    const sortSel = document.getElementById('sort-select');
+    if (sortSel) sortSel.value = currentFilters.sort;
+  }
+
+  function renderActiveFilters() {
+    const bar = document.getElementById('active-filters');
+    if (!bar) return;
+
+    const chips = [];
+    if (!FORCE_TYPE && currentFilters.type) {
+      chips.push({ key: 'type', label: `Type: ${currentFilters.type === 'video' ? 'Videos' : 'Photos'}` });
+    }
+    if (currentFilters.year) chips.push({ key: 'year', label: `Year: ${currentFilters.year}` });
+    if (currentFilters.location) chips.push({ key: 'location', label: `Location: ${currentFilters.location}` });
+    if (currentFilters.sort && currentFilters.sort !== 'indexed_at') {
+      chips.push({ key: 'sort', label: `Sort: ${sortLabels[currentFilters.sort] || currentFilters.sort}` });
+    }
+
+    if (chips.length === 0) {
+      bar.style.display = 'none';
+      bar.innerHTML = '';
+      return;
+    }
+
+    bar.style.display = 'flex';
+    bar.innerHTML = '';
+
+    const label = document.createElement('span');
+    label.className = 'active-filters-label';
+    label.textContent = 'Active filters:';
+    bar.appendChild(label);
+
+    chips.forEach(chip => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'filter-chip';
+      btn.textContent = `${chip.label} ×`;
+      btn.addEventListener('click', () => {
+        if (chip.key === 'sort') {
+          currentFilters.sort = 'indexed_at';
+        } else {
+          currentFilters[chip.key] = '';
+        }
+        syncFilterControls();
+        renderActiveFilters();
+        loadMedia(true);
+      });
+      bar.appendChild(btn);
+    });
+
+    const clearBtn = document.createElement('button');
+    clearBtn.type = 'button';
+    clearBtn.className = 'filter-chip filter-chip--clear';
+    clearBtn.textContent = 'Clear all';
+    clearBtn.addEventListener('click', () => {
+      currentFilters = {
+        type: FORCE_TYPE || '',
+        year: '',
+        location: '',
+        sort: 'indexed_at'
+      };
+      syncFilterControls();
+      renderActiveFilters();
+      loadMedia(true);
+    });
+    bar.appendChild(clearBtn);
   }
 
   // ── Card Builder ─────────────────────────────────────────
@@ -151,7 +238,12 @@
       const years = await res.json();
       years.forEach(({ year }) => {
         const label = document.createElement('label');
-        label.innerHTML = `<input type="radio" name="year" value="${year}" /> ${year}`;
+        const input = document.createElement('input');
+        input.type = 'radio';
+        input.name = 'year';
+        input.value = String(year);
+        label.appendChild(input);
+        label.appendChild(document.createTextNode(` ${year}`));
         container.appendChild(label);
       });
     } catch { /* ignore */ }
@@ -165,7 +257,12 @@
       const locs = await res.json();
       locs.slice(0, 20).forEach(({ location }) => {
         const label = document.createElement('label');
-        label.innerHTML = `<input type="radio" name="location" value="${escHtml(location)}" /> ${escHtml(location)}`;
+        const input = document.createElement('input');
+        input.type = 'radio';
+        input.name = 'location';
+        input.value = String(location);
+        label.appendChild(input);
+        label.appendChild(document.createTextNode(` ${location}`));
         container.appendChild(label);
       });
     } catch { /* ignore */ }
@@ -175,21 +272,21 @@
     document.querySelectorAll('input[name="type"]').forEach(el => {
       el.addEventListener('change', () => {
         currentFilters.type = FORCE_TYPE || el.value;
+        renderActiveFilters();
         loadMedia(true);
       });
     });
 
-    document.querySelectorAll('input[name="year"]').forEach(el => {
-      el.addEventListener('change', () => {
-        currentFilters.year = el.value;
-        loadMedia(true);
-      });
-    });
-
-    // Use event delegation for location radios (loaded async)
+    // Use event delegation for dynamically loaded year/location radios.
     document.addEventListener('change', e => {
+      if (e.target.name === 'year') {
+        currentFilters.year = e.target.value;
+        renderActiveFilters();
+        loadMedia(true);
+      }
       if (e.target.name === 'location') {
         currentFilters.location = e.target.value;
+        renderActiveFilters();
         loadMedia(true);
       }
     });
@@ -198,6 +295,7 @@
     if (sortSel) {
       sortSel.addEventListener('change', () => {
         currentFilters.sort = sortSel.value;
+        renderActiveFilters();
         loadMedia(true);
       });
     }
@@ -210,6 +308,8 @@
   async function init() {
     bindFilters();
     await Promise.all([loadFeatured(), loadStats(), loadYearFilter(), loadLocationFilter()]);
+    syncFilterControls();
+    renderActiveFilters();
     await loadMedia(true);
   }
 
