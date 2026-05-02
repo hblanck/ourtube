@@ -82,7 +82,7 @@ app.get('/photo/:id', streamLimiter, async (req, res) => {
 });
 
 // SPA fallback for admin
-app.get('/admin', (req, res) => {
+app.get('/admin', adminLimiter, (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'admin', 'index.html'));
 });
 
