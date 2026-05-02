@@ -224,8 +224,6 @@
         ).join('')}</div>`;
     }
 
-    const editLink = document.getElementById('admin-edit-link');
-    if (editLink) editLink.href = `/admin/?edit=${media.id}`;
   }
 
   async function loadRelated(media) {

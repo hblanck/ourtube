@@ -6,8 +6,9 @@ const path = require('path');
 const mime = require('mime-types');
 const sharp = require('sharp');
 const ffmpeg = require('fluent-ffmpeg');
+const { PassThrough } = require('stream');
 const { getDb } = require('../db');
-const { registerSession, addBytes, removeSession } = require('../sessions');
+const { upsertSession, touchSession, addBytes } = require('../sessions');
 
 const DATA_DIR = process.env.DATA_DIR || '/data';
 const router = express.Router();
@@ -49,7 +50,7 @@ router.get('/:id/transcode', (req, res) => {
   const filePath = row.file_path;
   if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found on disk' });
 
-  const sessionId = registerSession({
+  const sessionId = upsertSession({
     mediaId: row.id,
     title: row.title || path.basename(filePath),
     type: 'transcode',
@@ -75,7 +76,6 @@ router.get('/:id/transcode', (req, res) => {
       '-max_muxing_queue_size 1024'
     ])
     .on('error', err => {
-      removeSession(sessionId);
       if (!res.headersSent) {
         res.status(500).json({ error: 'Transcode failed' });
       } else {
@@ -84,12 +84,18 @@ router.get('/:id/transcode', (req, res) => {
       console.error('[stream] Transcode error:', err.message);
     });
 
+  const pass = new PassThrough();
+  pass.on('data', chunk => addBytes(sessionId, chunk.length));
+
   req.on('close', () => {
-    removeSession(sessionId);
+    touchSession(sessionId);
     try { cmd.kill('SIGKILL'); } catch { /* ignore */ }
   });
 
-  cmd.pipe(res, { end: true });
+  res.on('finish', () => touchSession(sessionId));
+
+  cmd.pipe(pass, { end: true });
+  pass.pipe(res, { end: true });
 });
 
 // GET /stream/:id  - HTTP range-supporting video stream (read-only)
@@ -107,7 +113,7 @@ router.get('/:id', (req, res) => {
   const mimeType = getStreamMimeType(row, filePath);
   const range = req.headers.range;
 
-  const sessionId = registerSession({
+  const sessionId = upsertSession({
     mediaId: row.id,
     title: row.title || path.basename(filePath),
     type: 'direct',
@@ -142,8 +148,8 @@ router.get('/:id', (req, res) => {
     fileStream.pipe(res);
   }
 
-  req.on('close', () => removeSession(sessionId));
-  res.on('finish', () => removeSession(sessionId));
+  req.on('close', () => touchSession(sessionId));
+  res.on('finish', () => touchSession(sessionId));
 });
 
 module.exports = router;
