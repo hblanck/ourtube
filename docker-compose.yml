@@ -7,7 +7,7 @@ services:
       - "3000:3000"
     volumes:
       - ourtube-data:/data
-      - /mnt/nas:/media:ro   # Mount NAS shares here (read-only)
+      - ${NAS_SHARE_PATH:-/mnt/nas}:/media:ro   # Mount NAS shares here (read-only)
     environment:
       - DATA_DIR=/data
       - PORT=3000

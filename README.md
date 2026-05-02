@@ -25,7 +25,7 @@ services:
       - "3000:3000"
     volumes:
       - ourtube-data:/data          # SQLite database + thumbnails
-      - /mnt/nas/videos:/media:ro   # Mount your NAS share here (read-only!)
+      - ${NAS_SHARE_PATH:-/mnt/nas/videos}:/media:ro   # Mount your NAS share here (read-only!)
     environment:
       - PORT=3000
       - DATA_DIR=/data
@@ -68,6 +68,7 @@ Open **http://localhost:3000/admin/** to:
 |---|---|---|
 | `PORT` | `3000` | HTTP port |
 | `DATA_DIR` | `/data` | Where to store the SQLite database and thumbnails |
+| `NAS_SHARE_PATH` | `/mnt/nas/videos` | Host path to your mounted NAS/media share |
 | `FACE_DETECTION_ENABLED` | `false` | Enable face detection (requires models in `$DATA_DIR/models/`) |
 
 ## Face Detection (Optional)
