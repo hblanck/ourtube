@@ -738,7 +738,9 @@
         <td>${m.location ? escHtml(m.location) : '—'}</td>
         <td style="max-width:280px">
           ${m.source_location_name ? `<div><strong>${escHtml(m.source_location_name)}</strong></div>` : '<div>—</div>'}
-          ${m.source_location_path ? `<div style="font-size:12px;color:#777;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><code>${escHtml(m.source_location_path)}</code></div>` : ''}
+          ${(m.source_entry_path || m.source_location_path)
+            ? `<div style="font-size:12px;color:#777;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><code>${escHtml(m.source_entry_path || m.source_location_path)}</code></div>`
+            : ''}
         </td>
         <td>${fmtDur(m.duration)}</td>
         <td>${fmtSize(m.size)}</td>

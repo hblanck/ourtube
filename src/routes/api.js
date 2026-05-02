@@ -62,6 +62,28 @@ router.get('/media', (req, res) => {
     `SELECT m.id, m.type, m.file_name, m.friendly_name, m.description, m.duration, m.width, m.height,
             m.size, m.thumbnail_path, m.year, m.location, m.tags, m.faces_detected, m.view_count,
             m.source_location_id, sl.name AS source_location_name, sl.path AS source_location_path,
+            (
+              SELECT sle.entry_path
+              FROM source_location_entries sle
+              WHERE sle.source_location_id = m.source_location_id
+                AND (
+                  (sle.entry_type = 'file' AND sle.entry_path = m.file_path)
+                  OR (sle.entry_type = 'directory' AND (m.file_path = sle.entry_path OR m.file_path LIKE sle.entry_path || '/%'))
+                )
+              ORDER BY LENGTH(sle.entry_path) DESC
+              LIMIT 1
+            ) AS source_entry_path,
+            (
+              SELECT sle.entry_type
+              FROM source_location_entries sle
+              WHERE sle.source_location_id = m.source_location_id
+                AND (
+                  (sle.entry_type = 'file' AND sle.entry_path = m.file_path)
+                  OR (sle.entry_type = 'directory' AND (m.file_path = sle.entry_path OR m.file_path LIKE sle.entry_path || '/%'))
+                )
+              ORDER BY LENGTH(sle.entry_path) DESC
+              LIMIT 1
+            ) AS source_entry_type,
             m.created_at, m.indexed_at
      FROM media m
      LEFT JOIN source_locations sl ON sl.id = m.source_location_id
