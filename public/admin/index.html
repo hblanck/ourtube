@@ -111,7 +111,7 @@
         <table class="data-table" id="library-table">
           <thead>
             <tr>
-              <th>Name</th><th>Type</th><th>Year</th><th>Location</th>
+              <th>Name</th><th>Type</th><th>Year</th><th>Location</th><th>Source</th>
               <th>Duration</th><th>Size</th><th>Actions</th>
             </tr>
           </thead>
@@ -707,7 +707,7 @@
 
   async function loadLibrary() {
     const tbody = document.getElementById('library-tbody');
-    tbody.innerHTML = '<tr><td colspan="7" style="color:#aaa;text-align:center">Loading…</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" style="color:#aaa;text-align:center">Loading…</td></tr>';
 
     const q = document.getElementById('library-search').value;
     const type = document.getElementById('library-type').value;
@@ -722,7 +722,7 @@
     libTotal = data.total;
 
     if (!data.items.length) {
-      tbody.innerHTML = '<tr><td colspan="7" style="color:#aaa;text-align:center">No items found.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" style="color:#aaa;text-align:center">No items found.</td></tr>';
       document.getElementById('library-pagination').innerHTML = '';
       await loadSkippedFiles();
       return;
@@ -736,6 +736,10 @@
         <td>${m.type === 'video' ? '🎬' : '📷'} ${m.type}</td>
         <td>${m.year || '—'}</td>
         <td>${m.location ? escHtml(m.location) : '—'}</td>
+        <td style="max-width:280px">
+          ${m.source_location_name ? `<div><strong>${escHtml(m.source_location_name)}</strong></div>` : '<div>—</div>'}
+          ${m.source_location_path ? `<div style="font-size:12px;color:#777;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><code>${escHtml(m.source_location_path)}</code></div>` : ''}
+        </td>
         <td>${fmtDur(m.duration)}</td>
         <td>${fmtSize(m.size)}</td>
         <td>

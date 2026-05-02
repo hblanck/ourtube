@@ -21,22 +21,27 @@ router.get('/media', (req, res) => {
   const pageLimit = Math.min(100, parseInt(limit));
 
   const conditions = [];
+  const aliasedConditions = [];
   const params = [];
 
   if (type && (type === 'video' || type === 'photo')) {
     conditions.push('type = ?');
+    aliasedConditions.push('m.type = ?');
     params.push(type);
   }
   if (year) {
     conditions.push('year = ?');
+    aliasedConditions.push('m.year = ?');
     params.push(parseInt(year));
   }
   if (location) {
     conditions.push('location LIKE ?');
+    aliasedConditions.push('m.location LIKE ?');
     params.push(`%${location}%`);
   }
   if (search) {
     conditions.push('(friendly_name LIKE ? OR description LIKE ? OR location LIKE ? OR tags LIKE ?)');
+    aliasedConditions.push('(m.friendly_name LIKE ? OR m.description LIKE ? OR m.location LIKE ? OR m.tags LIKE ?)');
     const q = `%${search}%`;
     params.push(q, q, q, q);
   }
@@ -44,20 +49,24 @@ router.get('/media', (req, res) => {
     const sourceLocationId = parseInt(source_location_id, 10);
     if (!Number.isNaN(sourceLocationId)) {
       conditions.push('source_location_id = ?');
+      aliasedConditions.push('m.source_location_id = ?');
       params.push(sourceLocationId);
     }
   }
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  const aliasedWhere = aliasedConditions.length ? `WHERE ${aliasedConditions.join(' AND ')}` : '';
 
   const total = db.prepare(`SELECT COUNT(*) as cnt FROM media ${where}`).get(...params).cnt;
   const rows = db.prepare(
-    `SELECT id, type, file_name, friendly_name, description, duration, width, height,
-            size, thumbnail_path, year, location, tags, faces_detected, view_count,
-            source_location_id,
-            created_at, indexed_at
-     FROM media ${where}
-     ORDER BY ${safeSort} ${safeOrder}
+    `SELECT m.id, m.type, m.file_name, m.friendly_name, m.description, m.duration, m.width, m.height,
+            m.size, m.thumbnail_path, m.year, m.location, m.tags, m.faces_detected, m.view_count,
+            m.source_location_id, sl.name AS source_location_name, sl.path AS source_location_path,
+            m.created_at, m.indexed_at
+     FROM media m
+     LEFT JOIN source_locations sl ON sl.id = m.source_location_id
+     ${aliasedWhere}
+     ORDER BY m.${safeSort} ${safeOrder}
      LIMIT ? OFFSET ?`
   ).all(...params, pageLimit, offset);
 
