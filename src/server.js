@@ -45,7 +45,7 @@ app.get('/thumbnail/:id', streamLimiter, (req, res) => {
   const db = getDb();
   const row = db.prepare('SELECT thumbnail_path FROM media WHERE id = ?').get(req.params.id);
   if (!row || !row.thumbnail_path) {
-    return res.status(404).sendFile(path.join(__dirname, '..', 'public', 'img', 'no-thumb.jpg'), err => {
+    return res.status(404).sendFile(path.join(__dirname, '..', 'public', 'img', 'no-thumb.svg'), err => {
       if (err) res.status(404).end();
     });
   }
