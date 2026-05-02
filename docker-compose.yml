@@ -1,0 +1,17 @@
+version: '3.8'
+services:
+  ourtube:
+    image: ghcr.io/hblanck/ourtube:latest
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - ourtube-data:/data
+      - /mnt/nas:/media:ro   # Mount NAS shares here (read-only)
+    environment:
+      - DATA_DIR=/data
+      - PORT=3000
+      - FACE_DETECTION_ENABLED=false
+    restart: unless-stopped
+volumes:
+  ourtube-data:

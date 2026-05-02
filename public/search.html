@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Search – OurTube</title>
+  <link rel="stylesheet" href="/css/main.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <a href="/" class="logo">📺 OurTube</a>
+      <form class="search-form" action="/search.html" method="GET" id="search-form">
+        <input type="search" name="q" class="search-input" id="search-input" placeholder="Search videos and photos…" autocomplete="off" />
+        <button type="submit" class="search-btn">🔍</button>
+      </form>
+      <nav class="header-nav">
+        <a href="/" class="nav-link">🎬 Videos</a>
+        <a href="/photos.html" class="nav-link">📷 Photos</a>
+        <a href="/admin/" class="nav-link">⚙️ Admin</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="page-layout page-layout--full">
+    <main class="main-content">
+      <h2 class="section-title" id="search-heading">Search Results</h2>
+      <div class="video-grid" id="media-grid"></div>
+      <div id="load-more-container" class="load-more-container">
+        <button id="load-more-btn" class="load-more-btn" style="display:none">Load More</button>
+        <p id="end-message" style="display:none;color:#888;text-align:center">No more results</p>
+        <p id="no-results" style="display:none;color:#888;text-align:center">No results found.</p>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(location.search);
+    const q = params.get('q') || '';
+    document.getElementById('search-input').value = q;
+    document.getElementById('search-heading').textContent = q ? `Results for "${q}"` : 'Search';
+
+    let page = 1;
+    const limit = 24;
+    let loading = false;
+    let hasMore = true;
+
+    async function loadResults() {
+      if (loading || !hasMore || !q.trim()) return;
+      loading = true;
+      const res = await fetch(`/api/search?q=${encodeURIComponent(q)}&page=${page}&limit=${limit}`);
+      const data = await res.json();
+      const grid = document.getElementById('media-grid');
+
+      if (data.items.length === 0 && page === 1) {
+        document.getElementById('no-results').style.display = 'block';
+        document.getElementById('load-more-btn').style.display = 'none';
+      }
+
+      data.items.forEach(item => {
+        const card = document.createElement('a');
+        card.href = `/watch.html?id=${item.id}`;
+        card.className = 'media-card';
+        const thumb = item.thumbnail_path ? `/thumbnail/${item.id}` : '/img/no-thumb.jpg';
+        card.innerHTML = `
+          <div class="card-thumb-wrap">
+            <img class="card-thumb" src="${thumb}" alt="${escHtml(item.friendly_name || item.file_name)}" loading="lazy" />
+            ${item.type === 'video' && item.duration ? `<span class="card-duration">${fmtDur(item.duration)}</span>` : ''}
+            <span class="card-type-badge">${item.type === 'video' ? '🎬' : '📷'}</span>
+          </div>
+          <div class="card-info">
+            <div class="card-title">${escHtml(item.friendly_name || item.file_name)}</div>
+            <div class="card-meta">${item.year || ''} ${item.location ? '· ' + escHtml(item.location) : ''}</div>
+          </div>`;
+        grid.appendChild(card);
+      });
+
+      hasMore = page * limit < data.total;
+      page++;
+      loading = false;
+      document.getElementById('load-more-btn').style.display = hasMore ? 'block' : 'none';
+      if (!hasMore && data.total > 0) document.getElementById('end-message').style.display = 'block';
+    }
+
+    function escHtml(str) {
+      return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+    function fmtDur(s) {
+      const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = Math.floor(s % 60);
+      return h ? `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}` : `${m}:${String(sec).padStart(2,'0')}`;
+    }
+
+    document.getElementById('load-more-btn').addEventListener('click', loadResults);
+    loadResults();
+  </script>
+</body>
+</html>
