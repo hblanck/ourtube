@@ -8,6 +8,7 @@ const morgan = require('morgan');
 const schedule = require('node-schedule');
 const mime = require('mime-types');
 const sharp = require('sharp');
+const rateLimit = require('express-rate-limit');
 
 const { initDb, getDb } = require('./db');
 const apiRouter = require('./routes/api');
@@ -24,18 +25,23 @@ app.use(morgan('combined'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
+// Rate limiting — generous limits for private home-network use
+const apiLimiter = rateLimit({ windowMs: 60_000, limit: 300, standardHeaders: true, legacyHeaders: false });
+const streamLimiter = rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: true, legacyHeaders: false });
+const adminLimiter = rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: true, legacyHeaders: false });
+
 // Static files
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 // API routes
-app.use('/api', apiRouter);
-app.use('/api/admin', adminApiRouter);
+app.use('/api', apiLimiter, apiRouter);
+app.use('/api/admin', adminLimiter, adminApiRouter);
 
 // Stream route (video streaming with range support)
-app.use('/stream', streamRouter);
+app.use('/stream', streamLimiter, streamRouter);
 
 // Thumbnail serving
-app.get('/thumbnail/:id', (req, res) => {
+app.get('/thumbnail/:id', streamLimiter, (req, res) => {
   const db = getDb();
   const row = db.prepare('SELECT thumbnail_path FROM media WHERE id = ?').get(req.params.id);
   if (!row || !row.thumbnail_path) {
@@ -48,7 +54,7 @@ app.get('/thumbnail/:id', (req, res) => {
 });
 
 // Photo serving (with optional resize)
-app.get('/photo/:id', async (req, res) => {
+app.get('/photo/:id', streamLimiter, async (req, res) => {
   const db = getDb();
   const row = db.prepare("SELECT file_path FROM media WHERE id = ? AND type = 'photo'").get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Not found' });

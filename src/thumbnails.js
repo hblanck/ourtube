@@ -38,7 +38,7 @@ async function generatePhotoThumbnail(photoPath, outputPath) {
   ensureThumbDir();
   await sharp(photoPath)
     .rotate()
-    .resize(400, 300, { fit: 'cover', withoutEnlargement: false })
+    .resize(400, 300, { fit: 'cover', withoutEnlargement: true })
     .jpeg({ quality: 80 })
     .toFile(outputPath);
   return outputPath;
