@@ -22,12 +22,69 @@ let scanStatus = {
   lastRun: null,
   filesFound: 0,
   filesIndexed: 0,
+  filesSkipped: 0,
   errors: 0,
-  currentFile: null
+  currentFile: null,
+  recentOutput: []
 };
 
 function getScanStatus() {
-  return { ...scanStatus };
+  return { ...scanStatus, recentOutput: [...scanStatus.recentOutput] };
+}
+
+function appendScanOutput(line) {
+  const timestamp = new Date().toISOString();
+  scanStatus.recentOutput.push(`[${timestamp}] ${line}`);
+  if (scanStatus.recentOutput.length > 300) {
+    scanStatus.recentOutput = scanStatus.recentOutput.slice(-300);
+  }
+}
+
+function scanInfo(message) {
+  console.log(message);
+  appendScanOutput(message);
+}
+
+function scanWarn(message) {
+  console.warn(message);
+  appendScanOutput(message);
+}
+
+function scanError(message) {
+  console.error(message);
+  appendScanOutput(message);
+}
+
+function getSkipReason(entryName, isDirectory) {
+  if (!entryName) return 'invalid directory entry';
+
+  // macOS sidecar/resource files and common desktop metadata files
+  if (entryName.startsWith('._')) return 'macOS AppleDouble sidecar file';
+  if (entryName === '.DS_Store') return 'macOS Finder metadata file';
+  if (entryName === 'Thumbs.db') return 'Windows thumbnail cache file';
+  if (entryName === 'desktop.ini') return 'Windows desktop metadata file';
+
+  // Skip hidden/system folders that should not be scanned as media roots
+  if (isDirectory) {
+    if (entryName.startsWith('.')) return 'hidden system directory';
+    if (entryName === '$RECYCLE.BIN') return 'Windows recycle bin directory';
+    if (entryName === '__MACOSX') return 'macOS archive metadata directory';
+  }
+
+  return null;
+}
+
+function recordSkippedFile(filePath, reason, locationId) {
+  const db = getDb();
+  db.prepare(
+    `INSERT INTO skipped_files (file_path, source_location_id, reason, first_seen_at, last_seen_at, skip_count)
+     VALUES (?, ?, ?, datetime('now'), datetime('now'), 1)
+     ON CONFLICT(file_path) DO UPDATE SET
+       source_location_id = excluded.source_location_id,
+       reason = excluded.reason,
+       last_seen_at = datetime('now'),
+       skip_count = skipped_files.skip_count + 1`
+  ).run(filePath, locationId ?? null, reason);
 }
 
 function isMediaFile(filePath) {
@@ -35,20 +92,30 @@ function isMediaFile(filePath) {
   return VIDEO_EXTENSIONS.has(ext) || PHOTO_EXTENSIONS.has(ext);
 }
 
-function walkDir(dirPath) {
+function walkDir(dirPath, locationId) {
   const results = [];
   let entries;
   try {
     entries = fs.readdirSync(dirPath, { withFileTypes: true });
   } catch (err) {
-    console.warn(`[scanner] Cannot read dir ${dirPath}: ${err.message}`);
+    scanWarn(`[scanner] Cannot read dir ${dirPath}: ${err.message}`);
     return results;
   }
 
   for (const entry of entries) {
+    const skipReason = getSkipReason(entry.name, entry.isDirectory());
+    if (skipReason) {
+      if (entry.isFile()) {
+        const skippedPath = path.join(dirPath, entry.name);
+        scanStatus.filesSkipped++;
+        recordSkippedFile(skippedPath, skipReason, locationId);
+      }
+      continue;
+    }
+
     const fullPath = path.join(dirPath, entry.name);
     if (entry.isDirectory()) {
-      results.push(...walkDir(fullPath));
+      results.push(...walkDir(fullPath, locationId));
     } else if (entry.isFile() && isMediaFile(fullPath)) {
       results.push(fullPath);
     }
@@ -88,7 +155,7 @@ async function indexFile(filePath, locationId) {
       meta = await extractPhotoMetadata(filePath);
     }
   } catch (err) {
-    console.warn(`[scanner] Metadata error for ${filePath}: ${err.message}`);
+      scanWarn(`[scanner] Metadata error for ${filePath}: ${err.message}`);
   }
 
   try {
@@ -99,7 +166,7 @@ async function indexFile(filePath, locationId) {
     }
     thumbnailGenerated = true;
   } catch (err) {
-    console.warn(`[scanner] Thumbnail error for ${filePath}: ${err.message}`);
+      scanWarn(`[scanner] Thumbnail error for ${filePath}: ${err.message}`);
   }
 
   const year = meta.created_at
@@ -172,15 +239,15 @@ async function indexFile(filePath, locationId) {
 }
 
 async function scanLocation(location) {
-  console.log(`[scanner] Scanning location: ${location.name} (${location.path})`);
+  scanInfo(`[scanner] Scanning location: ${location.name} (${location.path})`);
 
   if (!fs.existsSync(location.path)) {
-    console.warn(`[scanner] Path does not exist: ${location.path}`);
+    scanWarn(`[scanner] Path does not exist: ${location.path}`);
     return { found: 0, indexed: 0, errors: 0 };
   }
 
-  const files = walkDir(location.path);
-  console.log(`[scanner] Found ${files.length} media files in ${location.path}`);
+  const files = walkDir(location.path, location.id);
+  scanInfo(`[scanner] Found ${files.length} media files in ${location.path}`);
 
   let indexed = 0;
   let errors = 0;
@@ -194,7 +261,7 @@ async function scanLocation(location) {
     } catch (err) {
       errors++;
       scanStatus.errors++;
-      console.error(`[scanner] Error indexing ${filePath}: ${err.message}`);
+      scanError(`[scanner] Error indexing ${filePath}: ${err.message}`);
     }
   }
 
@@ -208,7 +275,7 @@ async function scanLocation(location) {
 
 async function scanAllLocations() {
   if (scanStatus.inProgress) {
-    console.log('[scanner] Scan already in progress, skipping.');
+    scanInfo('[scanner] Scan already in progress, skipping.');
     return;
   }
 
@@ -217,14 +284,16 @@ async function scanAllLocations() {
     lastRun: new Date().toISOString(),
     filesFound: 0,
     filesIndexed: 0,
+    filesSkipped: 0,
     errors: 0,
-    currentFile: null
+    currentFile: null,
+    recentOutput: []
   };
 
   const db = getDb();
   const locations = db.prepare('SELECT * FROM source_locations WHERE enabled = 1').all();
 
-  console.log(`[scanner] Starting scan of ${locations.length} location(s)`);
+  scanInfo(`[scanner] Starting scan of ${locations.length} location(s)`);
 
   for (const loc of locations) {
     await scanLocation(loc);
@@ -232,7 +301,9 @@ async function scanAllLocations() {
 
   scanStatus.inProgress = false;
   scanStatus.currentFile = null;
-  console.log(`[scanner] Scan complete. Found: ${scanStatus.filesFound}, Indexed: ${scanStatus.filesIndexed}, Errors: ${scanStatus.errors}`);
+  scanInfo(
+    `[scanner] Scan complete. Found: ${scanStatus.filesFound}, Indexed: ${scanStatus.filesIndexed}, Skipped: ${scanStatus.filesSkipped}, Errors: ${scanStatus.errors}`
+  );
 }
 
 module.exports = { scanAllLocations, scanLocation, indexFile, getScanStatus };

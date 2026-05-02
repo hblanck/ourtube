@@ -1,15 +1,100 @@
 'use strict';
 
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
 const { getDb } = require('../db');
 const { scanLocation, scanAllLocations, getScanStatus } = require('../scanner');
 
 const router = express.Router();
+const MEDIA_ROOT = path.resolve('/media');
+
+function toPosixPath(p) {
+  return p.replace(/\\/g, '/');
+}
+
+function isWithinMediaRoot(targetPath) {
+  const rel = path.relative(MEDIA_ROOT, targetPath);
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
+// GET /api/admin/media-root/browse?path=/media/subdir
+router.get('/media-root/browse', (req, res) => {
+  const requestedPath = typeof req.query.path === 'string' && req.query.path.trim()
+    ? req.query.path.trim()
+    : MEDIA_ROOT;
+
+  const absolutePath = path.resolve(requestedPath);
+  if (!isWithinMediaRoot(absolutePath)) {
+    return res.status(400).json({ error: 'Path must be within /media' });
+  }
+
+  if (!fs.existsSync(absolutePath)) {
+    return res.status(404).json({ error: 'Directory not found' });
+  }
+
+  try {
+    const stat = fs.statSync(absolutePath);
+    if (!stat.isDirectory()) {
+      return res.status(400).json({ error: 'Path is not a directory' });
+    }
+
+    const directories = fs.readdirSync(absolutePath, { withFileTypes: true })
+      .filter(entry => entry.isDirectory())
+      .map(entry => {
+        const dirPath = path.join(absolutePath, entry.name);
+        return { name: entry.name, path: toPosixPath(dirPath) };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    const parentPath = absolutePath === MEDIA_ROOT ? null : path.dirname(absolutePath);
+
+    res.json({
+      root: toPosixPath(MEDIA_ROOT),
+      current: toPosixPath(absolutePath),
+      parent: parentPath && isWithinMediaRoot(parentPath) ? toPosixPath(parentPath) : null,
+      directories
+    });
+  } catch (err) {
+    console.error('[admin] Failed to browse media root:', err);
+    res.status(500).json({ error: 'Failed to read directory' });
+  }
+});
 
 // GET /api/admin/locations
 router.get('/locations', (req, res) => {
   const db = getDb();
   res.json(db.prepare('SELECT * FROM source_locations ORDER BY created_at DESC').all());
+});
+
+// GET /api/admin/skipped-files
+router.get('/skipped-files', (req, res) => {
+  const db = getDb();
+  const { q = '', page = 1, limit = 25 } = req.query;
+
+  const safePage = Math.max(1, parseInt(page) || 1);
+  const pageLimit = Math.min(100, Math.max(1, parseInt(limit) || 25));
+  const offset = (safePage - 1) * pageLimit;
+  const search = `%${String(q).trim()}%`;
+
+  const total = db.prepare(
+    `SELECT COUNT(*) as cnt
+     FROM skipped_files sf
+     LEFT JOIN source_locations sl ON sl.id = sf.source_location_id
+     WHERE sf.file_path LIKE ? OR sf.reason LIKE ? OR COALESCE(sl.name, '') LIKE ?`
+  ).get(search, search, search).cnt;
+
+  const items = db.prepare(
+    `SELECT sf.file_path, sf.reason, sf.first_seen_at, sf.last_seen_at, sf.skip_count,
+            sf.source_location_id, sl.name as source_location_name
+     FROM skipped_files sf
+     LEFT JOIN source_locations sl ON sl.id = sf.source_location_id
+     WHERE sf.file_path LIKE ? OR sf.reason LIKE ? OR COALESCE(sl.name, '') LIKE ?
+     ORDER BY sf.last_seen_at DESC
+     LIMIT ? OFFSET ?`
+  ).all(search, search, search, pageLimit, offset);
+
+  res.json({ total, page: safePage, limit: pageLimit, items });
 });
 
 // POST /api/admin/locations

@@ -70,12 +70,22 @@ function initDb() {
       value TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS skipped_files (
+      file_path TEXT PRIMARY KEY,
+      source_location_id INTEGER REFERENCES source_locations(id) ON DELETE SET NULL,
+      reason TEXT NOT NULL,
+      first_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+      last_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+      skip_count INTEGER NOT NULL DEFAULT 1
+    );
+
     CREATE INDEX IF NOT EXISTS idx_media_type ON media(type);
     CREATE INDEX IF NOT EXISTS idx_media_year ON media(year);
     CREATE INDEX IF NOT EXISTS idx_media_location ON media(location);
     CREATE INDEX IF NOT EXISTS idx_media_indexed_at ON media(indexed_at);
     CREATE INDEX IF NOT EXISTS idx_faces_media_id ON faces(media_id);
     CREATE INDEX IF NOT EXISTS idx_faces_person_name ON faces(person_name);
+    CREATE INDEX IF NOT EXISTS idx_skipped_files_last_seen ON skipped_files(last_seen_at);
   `);
 
   // Insert default settings if not present

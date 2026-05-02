@@ -46,6 +46,11 @@
           <button class="btn btn-primary" onclick="triggerFullScan()">▶ Scan All Locations</button>
           <span id="scan-info" style="font-size:12px;color:#888"></span>
         </div>
+
+        <div style="margin-bottom:16px;">
+          <div style="font-size:12px;font-weight:600;color:#666;margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em">Scan Output</div>
+          <pre id="scan-output" style="background:#0f172a;color:#c7d2fe;border-radius:8px;padding:12px;max-height:260px;overflow:auto;font-size:12px;line-height:1.4;white-space:pre-wrap;word-break:break-word">No scan output yet.</pre>
+        </div>
       </section>
 
       <!-- Source Locations -->
@@ -75,6 +80,9 @@
             <option value="video">Videos</option>
             <option value="photo">Photos</option>
           </select>
+          <select id="library-source-location" class="form-select" style="max-width:240px">
+            <option value="">All Source Locations</option>
+          </select>
         </div>
         <table class="data-table" id="library-table">
           <thead>
@@ -86,6 +94,17 @@
           <tbody id="library-tbody"></tbody>
         </table>
         <div id="library-pagination" style="margin-top:12px;display:flex;gap:8px;align-items:center;font-size:13px"></div>
+
+        <h3 style="margin-top:28px;margin-bottom:12px">Skipped Files</h3>
+        <table class="data-table" id="skipped-table">
+          <thead>
+            <tr>
+              <th>File</th><th>Reason</th><th>Source Location</th><th>Last Seen</th><th>Skip Count</th>
+            </tr>
+          </thead>
+          <tbody id="skipped-tbody"></tbody>
+        </table>
+        <div id="skipped-pagination" style="margin-top:12px;display:flex;gap:8px;align-items:center;font-size:13px"></div>
       </section>
 
       <!-- Settings -->
@@ -137,6 +156,20 @@
         <div class="form-group">
           <label class="form-label">Path <span style="color:red">*</span></label>
           <input type="text" name="path" class="form-input" placeholder="/media/nas/videos" required />
+          <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
+            <button type="button" class="btn btn-secondary btn-small" onclick="openPathBrowser()">Browse /media</button>
+            <span style="font-size:12px;color:#888">Choose an existing directory under <code>/media</code></span>
+          </div>
+          <div id="path-browser" class="path-browser" style="display:none">
+            <div class="path-browser-header">
+              <strong id="path-browser-current"></strong>
+              <div style="display:flex;gap:8px">
+                <button type="button" class="btn btn-small" onclick="selectCurrentBrowserPath()">Use This Folder</button>
+                <button type="button" class="btn btn-small" onclick="closePathBrowser()">Close</button>
+              </div>
+            </div>
+            <div id="path-browser-list" class="path-browser-list"></div>
+          </div>
         </div>
         <div class="form-row">
           <div class="form-group">
@@ -234,7 +267,10 @@
   }
   function fmtDate(s) { try { return s ? new Date(s).toLocaleString() : '—'; } catch { return s||'—'; } }
 
-  function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+  function closeModal(id) {
+    document.getElementById(id).classList.remove('open');
+    if (id === 'location-modal') closePathBrowser();
+  }
   function openModal(id) { document.getElementById(id).classList.add('open'); }
 
   // Close modal on backdrop click
@@ -251,7 +287,10 @@
       document.getElementById('tab-' + link.dataset.tab).classList.add('active');
 
       if (link.dataset.tab === 'locations') loadLocations();
-      if (link.dataset.tab === 'library') { libPage = 1; loadLibrary(); }
+      if (link.dataset.tab === 'library') {
+        libPage = 1;
+        loadLibrarySourceLocationFilter().then(() => loadLibrary());
+      }
       if (link.dataset.tab === 'settings') loadSettings();
     });
   });
@@ -287,15 +326,21 @@
       const s = await res.json();
       const badge = document.getElementById('scan-status-badge');
       const info = document.getElementById('scan-info');
+      const output = document.getElementById('scan-output');
+      const lines = Array.isArray(s.recentOutput) ? s.recentOutput : [];
+      output.textContent = lines.length ? lines.join('\n') : 'No scan output yet.';
+      if (s.inProgress) output.scrollTop = output.scrollHeight;
       if (s.inProgress) {
         badge.className = 'scan-status running';
         badge.innerHTML = '<span class="scan-dot"></span> Scanning…';
-        info.textContent = `Found: ${s.filesFound} · Indexed: ${s.filesIndexed} · Errors: ${s.errors}`;
+        info.textContent = `Found: ${s.filesFound} · Indexed: ${s.filesIndexed} · Skipped: ${s.filesSkipped || 0} · Errors: ${s.errors}`;
         scanPollTimer = setTimeout(pollScanStatus, 2000);
       } else {
         badge.className = 'scan-status idle';
         badge.innerHTML = '<span class="scan-dot"></span> Idle';
-        info.textContent = s.lastRun ? `Last run: ${fmtDate(s.lastRun)} · Found: ${s.filesFound} · Indexed: ${s.filesIndexed}` : '';
+        info.textContent = s.lastRun
+          ? `Last run: ${fmtDate(s.lastRun)} · Found: ${s.filesFound} · Indexed: ${s.filesIndexed} · Skipped: ${s.filesSkipped || 0} · Errors: ${s.errors}`
+          : '';
       }
     } catch { /* ignore */ }
   }
@@ -336,6 +381,8 @@
     const form = document.getElementById('location-form');
     form.reset();
     form.querySelector('[name=id]').value = '';
+    form.querySelector('[name=path]').value = '/media';
+    closePathBrowser();
     openModal('location-modal');
   }
 
@@ -352,7 +399,80 @@
     form.querySelector('[name=type]').value = loc.type;
     form.querySelector('[name=scan_interval]').value = loc.scan_interval;
     form.querySelector('[name=enabled]').checked = !!loc.enabled;
+    closePathBrowser();
     openModal('location-modal');
+  }
+
+  // /media path browser for source location picker
+  let pathBrowserCurrent = '/media';
+
+  async function openPathBrowser(startPath) {
+    const browser = document.getElementById('path-browser');
+    browser.style.display = 'block';
+    const pathInput = document.querySelector('#location-form [name=path]');
+    const targetPath = startPath || pathInput.value || '/media';
+    await loadPathBrowser(targetPath);
+  }
+
+  function closePathBrowser() {
+    const browser = document.getElementById('path-browser');
+    const list = document.getElementById('path-browser-list');
+    const current = document.getElementById('path-browser-current');
+    browser.style.display = 'none';
+    list.innerHTML = '';
+    current.textContent = '';
+  }
+
+  async function loadPathBrowser(targetPath) {
+    const list = document.getElementById('path-browser-list');
+    const current = document.getElementById('path-browser-current');
+    list.innerHTML = '<div class="path-browser-note">Loading directories…</div>';
+
+    try {
+      const res = await fetch(`/api/admin/media-root/browse?path=${encodeURIComponent(targetPath)}`);
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to browse directory');
+      }
+
+      pathBrowserCurrent = data.current;
+      current.textContent = data.current;
+      list.innerHTML = '';
+
+      if (data.parent) {
+        const parentBtn = document.createElement('button');
+        parentBtn.type = 'button';
+        parentBtn.className = 'path-browser-item';
+        parentBtn.textContent = '.. (parent)';
+        parentBtn.addEventListener('click', () => loadPathBrowser(data.parent));
+        list.appendChild(parentBtn);
+      }
+
+      if (data.directories.length === 0) {
+        const note = document.createElement('div');
+        note.className = 'path-browser-note';
+        note.textContent = 'No subdirectories found.';
+        list.appendChild(note);
+      } else {
+        data.directories.forEach(dir => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'path-browser-item';
+          btn.textContent = dir.name;
+          btn.addEventListener('click', () => loadPathBrowser(dir.path));
+          list.appendChild(btn);
+        });
+      }
+    } catch (err) {
+      current.textContent = targetPath;
+      list.innerHTML = `<div class="path-browser-error">${escHtml(err.message || 'Failed to browse directory')}</div>`;
+    }
+  }
+
+  function selectCurrentBrowserPath() {
+    const pathInput = document.querySelector('#location-form [name=path]');
+    pathInput.value = pathBrowserCurrent;
+    closePathBrowser();
   }
 
   document.getElementById('location-form').addEventListener('submit', async e => {
@@ -391,6 +511,30 @@
   let libPage = 1;
   let libTotal = 0;
   const libLimit = 20;
+  let skippedPage = 1;
+  let skippedTotal = 0;
+  const skippedLimit = 20;
+
+  async function loadLibrarySourceLocationFilter() {
+    const sel = document.getElementById('library-source-location');
+    if (!sel) return;
+
+    const current = sel.value;
+    const res = await fetch('/api/admin/locations');
+    const locs = await res.json();
+
+    sel.innerHTML = '<option value="">All Source Locations</option>';
+    locs.forEach(loc => {
+      const opt = document.createElement('option');
+      opt.value = String(loc.id);
+      opt.textContent = loc.name;
+      sel.appendChild(opt);
+    });
+
+    if (current && locs.some(loc => String(loc.id) === current)) {
+      sel.value = current;
+    }
+  }
 
   async function loadLibrary() {
     const tbody = document.getElementById('library-tbody');
@@ -398,9 +542,11 @@
 
     const q = document.getElementById('library-search').value;
     const type = document.getElementById('library-type').value;
+    const sourceLocationId = document.getElementById('library-source-location').value;
     const params = new URLSearchParams({ page: libPage, limit: libLimit });
     if (q) params.set('search', q);
     if (type) params.set('type', type);
+    if (sourceLocationId) params.set('source_location_id', sourceLocationId);
 
     const res = await fetch('/api/media?' + params.toString());
     const data = await res.json();
@@ -409,6 +555,7 @@
     if (!data.items.length) {
       tbody.innerHTML = '<tr><td colspan="7" style="color:#aaa;text-align:center">No items found.</td></tr>';
       document.getElementById('library-pagination').innerHTML = '';
+      await loadSkippedFiles();
       return;
     }
 
@@ -435,16 +582,73 @@
       <button class="btn btn-secondary btn-small" onclick="libGo(${libPage-1})" ${libPage<=1?'disabled':''}>← Prev</button>
       <span>Page ${libPage} of ${totalPages} (${libTotal} items)</span>
       <button class="btn btn-secondary btn-small" onclick="libGo(${libPage+1})" ${libPage>=totalPages?'disabled':''}>Next →</button>`;
+
+    await loadSkippedFiles();
   }
 
   function libGo(p) { libPage = p; loadLibrary(); }
 
+  async function loadSkippedFiles() {
+    const tbody = document.getElementById('skipped-tbody');
+    if (!tbody) return;
+
+    tbody.innerHTML = '<tr><td colspan="5" style="color:#aaa;text-align:center">Loading…</td></tr>';
+
+    const q = document.getElementById('library-search').value;
+    const params = new URLSearchParams({ page: skippedPage, limit: skippedLimit });
+    if (q) params.set('q', q);
+
+    const res = await fetch('/api/admin/skipped-files?' + params.toString());
+    const data = await res.json();
+    skippedTotal = data.total;
+
+    if (!data.items.length) {
+      tbody.innerHTML = '<tr><td colspan="5" style="color:#aaa;text-align:center">No skipped files.</td></tr>';
+      document.getElementById('skipped-pagination').innerHTML = '';
+      return;
+    }
+
+    tbody.innerHTML = data.items.map(item => `
+      <tr>
+        <td style="max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><code>${escHtml(item.file_path)}</code></td>
+        <td>${escHtml(item.reason)}</td>
+        <td>${item.source_location_name ? escHtml(item.source_location_name) : '—'}</td>
+        <td>${fmtDate(item.last_seen_at)}</td>
+        <td>${item.skip_count}</td>
+      </tr>`).join('');
+
+    const totalPages = Math.max(1, Math.ceil(skippedTotal / skippedLimit));
+    const pag = document.getElementById('skipped-pagination');
+    pag.innerHTML = `
+      <button class="btn btn-secondary btn-small" onclick="skippedGo(${skippedPage-1})" ${skippedPage<=1?'disabled':''}>← Prev</button>
+      <span>Page ${skippedPage} of ${totalPages} (${skippedTotal} files)</span>
+      <button class="btn btn-secondary btn-small" onclick="skippedGo(${skippedPage+1})" ${skippedPage>=totalPages?'disabled':''}>Next →</button>`;
+  }
+
+  function skippedGo(p) {
+    skippedPage = p;
+    loadSkippedFiles();
+  }
+
   let libSearchTimer;
   document.getElementById('library-search').addEventListener('input', () => {
     clearTimeout(libSearchTimer);
-    libSearchTimer = setTimeout(() => { libPage = 1; loadLibrary(); }, 300);
+    libSearchTimer = setTimeout(() => {
+      libPage = 1;
+      skippedPage = 1;
+      loadLibrary();
+    }, 300);
   });
-  document.getElementById('library-type').addEventListener('change', () => { libPage = 1; loadLibrary(); });
+  document.getElementById('library-type').addEventListener('change', () => {
+    libPage = 1;
+    skippedPage = 1;
+    loadLibrary();
+  });
+  document.getElementById('library-source-location').addEventListener('change', () => {
+    libPage = 1;
+    skippedPage = 1;
+    loadLibrary();
+  });
 
   // Edit media modal
   let currentMediaId = null;

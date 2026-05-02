@@ -1,8 +1,19 @@
-version: '3.8'
 services:
   ourtube:
     image: ghcr.io/hblanck/ourtube:latest
     build: .
+    develop:
+      watch:
+        - action: rebuild
+          path: ./src
+        - action: rebuild
+          path: ./public
+        - action: rebuild
+          path: ./package.json
+        - action: rebuild
+          path: ./package-lock.json
+        - action: rebuild
+          path: ./Dockerfile
     ports:
       - "${PORT:-3000}:${PORT:-3000}"
     volumes:

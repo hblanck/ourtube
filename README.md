@@ -39,6 +39,12 @@ volumes:
 docker compose up -d
 ```
 
+For development with automatic image rebuild/restart when app files change:
+
+```bash
+docker compose up --watch
+```
+
 Then open **http://localhost:3000** in your browser and go to **Admin → Source Locations** to add `/media` (or any path you mounted).
 
 ## SMB / NAS Shares

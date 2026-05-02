@@ -11,6 +11,9 @@
   }
 
   let player = null;
+  let transcodeFallbackTried = false;
+  let compatibilityMode = false;
+  let expectedDuration = 0;
 
   function escHtml(str) {
     return String(str || '')
@@ -40,14 +43,49 @@
     try { return new Date(str).toLocaleDateString(); } catch { return str; }
   }
 
+  function setTimeControlDisplay(el, value) {
+    if (!el) return;
+    const textNode = Array.from(el.childNodes).find(node => node.nodeType === Node.TEXT_NODE);
+    if (textNode) {
+      textNode.textContent = ` ${value}`;
+      return;
+    }
+    el.appendChild(document.createTextNode(` ${value}`));
+  }
+
+  function syncCompatibilityDurationUi() {
+    if (!player || !compatibilityMode || !expectedDuration) return;
+
+    try {
+      if (!Number.isFinite(player.duration()) || Math.abs(player.duration() - expectedDuration) > 1) {
+        player.duration(expectedDuration);
+      }
+    } catch { /* ignore */ }
+
+    const current = Math.min(player.currentTime() || 0, expectedDuration);
+    const root = player.el();
+    if (!root) return;
+
+    setTimeControlDisplay(root.querySelector('.vjs-current-time-display'), fmtDur(current));
+    setTimeControlDisplay(root.querySelector('.vjs-duration-display'), fmtDur(expectedDuration));
+    setTimeControlDisplay(root.querySelector('.vjs-remaining-time-display'), `-${fmtDur(Math.max(expectedDuration - current, 0))}`);
+  }
+
   function initVideo(media) {
     const container = document.getElementById('player-container');
     if (!container) return;
     container.style.display = '';
     document.getElementById('photo-container').style.display = 'none';
 
+    const warningEl = document.getElementById('playback-warning');
+    if (warningEl) warningEl.style.display = 'none';
+    const compatibilityBadge = document.getElementById('compatibility-badge');
+    if (compatibilityBadge) compatibilityBadge.style.display = 'none';
+    transcodeFallbackTried = false;
+    expectedDuration = media.duration || 0;
+
     if (player) {
-      player.src({ src: `/stream/${media.id}`, type: getMime(media.file_name) });
+      setVideoSource(media, false);
       return;
     }
 
@@ -59,21 +97,93 @@
       playbackRates: [0.5, 1, 1.25, 1.5, 2],
     });
 
-    player.src({ src: `/stream/${media.id}`, type: getMime(media.file_name) });
+    player.on('loadedmetadata', syncCompatibilityDurationUi);
+    player.on('durationchange', syncCompatibilityDurationUi);
+    player.on('timeupdate', syncCompatibilityDurationUi);
+    player.on('loadeddata', syncCompatibilityDurationUi);
+
+    player.on('error', () => {
+      if (!transcodeFallbackTried) {
+        transcodeFallbackTried = true;
+        const warning = document.getElementById('playback-warning');
+        if (warning) {
+          warning.textContent = 'Direct playback failed. Trying compatibility mode...';
+          warning.style.display = 'block';
+        }
+        setVideoSource(media, true);
+        player.play().catch(() => {});
+        return;
+      }
+
+      const warning = document.getElementById('playback-warning');
+      if (warning) {
+        warning.innerHTML = 'This file could not be played in your browser. You can try downloading it and playing locally.';
+        warning.style.display = 'block';
+      }
+    });
+
+    setVideoSource(media, shouldPreferTranscode(media));
   }
 
-  function getMime(filename) {
-    const ext = (filename || '').split('.').pop().toLowerCase();
-    const map = {
-      mp4: 'video/mp4', mkv: 'video/x-matroska', webm: 'video/webm',
-      avi: 'video/x-msvideo', mov: 'video/quicktime', m4v: 'video/mp4',
-      flv: 'video/x-flv'
-    };
-    return map[ext] || 'video/mp4';
+  function setVideoSource(media, useTranscode) {
+    if (!player) return;
+    compatibilityMode = useTranscode;
+    const compatibilityBadge = document.getElementById('compatibility-badge');
+    if (compatibilityBadge) compatibilityBadge.style.display = useTranscode ? 'block' : 'none';
+    if (useTranscode) {
+      player.src({ src: `/stream/${media.id}/transcode`, type: 'video/mp4' });
+      syncCompatibilityDurationUi();
+      return;
+    }
+    const warning = document.getElementById('playback-warning');
+    if (warning) warning.style.display = 'none';
+    player.src({ src: `/stream/${media.id}`, type: getMime(media) });
+  }
+
+  function shouldPreferTranscode(media) {
+    const ext = (media.file_name || '').split('.').pop().toLowerCase();
+    if (['mkv', 'avi', 'wmv', 'flv', 'mpg', 'mpeg', '3gp'].includes(ext)) return true;
+    return !canPlayDirectly(media);
+  }
+
+  function getAudioCodec(media) {
+    const streams = Array.isArray(media.raw_metadata?.streams) ? media.raw_metadata.streams : [];
+    const audioStream = streams.find(stream => stream.codec_type === 'audio');
+    return (audioStream?.codec_name || '').toLowerCase();
+  }
+
+  function canPlayDirectly(media) {
+    const ext = (media.file_name || '').split('.').pop().toLowerCase();
+    const videoCodec = (media.codec || '').toLowerCase();
+    const audioCodec = getAudioCodec(media);
+
+    if (ext === 'webm') return true;
+    if (['mp4', 'm4v'].includes(ext)) return true;
+
+    if (ext === 'mov') {
+      const videoOk = ['h264', 'avc1'].includes(videoCodec);
+      const audioOk = !audioCodec || ['aac', 'mp3'].includes(audioCodec);
+      return videoOk && audioOk;
+    }
+
+    return false;
+  }
+
+  function getMime(media) {
+    const ext = (media.file_name || '').split('.').pop().toLowerCase();
+    if (ext === 'webm') return 'video/webm';
+    if (['mp4', 'm4v'].includes(ext)) return 'video/mp4';
+    if (ext === 'mov' && canPlayDirectly(media)) return 'video/mp4';
+    if (ext === 'mov') return 'video/quicktime';
+    return 'video/mp4';
   }
 
   function initPhoto(media) {
     document.getElementById('player-container').style.display = 'none';
+    const warningEl = document.getElementById('playback-warning');
+    if (warningEl) warningEl.style.display = 'none';
+    const compatibilityBadge = document.getElementById('compatibility-badge');
+    if (compatibilityBadge) compatibilityBadge.style.display = 'none';
     const photoContainer = document.getElementById('photo-container');
     photoContainer.style.display = '';
     const img = document.getElementById('photo-img');

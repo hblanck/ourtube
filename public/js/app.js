@@ -7,7 +7,9 @@
   let page = 1;
   let loading = false;
   let hasMore = true;
-  let currentFilters = { type: FORCE_TYPE || '', year: '', location: '', sort: 'indexed_at' };
+  let currentFilters = { type: FORCE_TYPE || '', year: '', location: '', source_location_id: '', sort: 'indexed_at' };
+  const SIDEBAR_STATE_KEY = 'ourtube.sidebar.collapsed';
+  const sourceLocationLabels = {};
   const sortLabels = {
     indexed_at: 'Date Added',
     created_at: 'Date Created',
@@ -52,6 +54,7 @@
     setRadioValue('type', currentFilters.type);
     setRadioValue('year', currentFilters.year);
     setRadioValue('location', currentFilters.location);
+    setRadioValue('source_location_id', currentFilters.source_location_id);
 
     const sortSel = document.getElementById('sort-select');
     if (sortSel) sortSel.value = currentFilters.sort;
@@ -67,6 +70,10 @@
     }
     if (currentFilters.year) chips.push({ key: 'year', label: `Year: ${currentFilters.year}` });
     if (currentFilters.location) chips.push({ key: 'location', label: `Location: ${currentFilters.location}` });
+    if (currentFilters.source_location_id) {
+      const sourceLabel = sourceLocationLabels[currentFilters.source_location_id] || currentFilters.source_location_id;
+      chips.push({ key: 'source_location_id', label: `Source: ${sourceLabel}` });
+    }
     if (currentFilters.sort && currentFilters.sort !== 'indexed_at') {
       chips.push({ key: 'sort', label: `Sort: ${sortLabels[currentFilters.sort] || currentFilters.sort}` });
     }
@@ -112,6 +119,7 @@
         type: FORCE_TYPE || '',
         year: '',
         location: '',
+        source_location_id: '',
         sort: 'indexed_at'
       };
       syncFilterControls();
@@ -119,6 +127,47 @@
       loadMedia(true);
     });
     bar.appendChild(clearBtn);
+  }
+
+  function initSidebarToggle() {
+    const layout = document.querySelector('.page-layout');
+    const btn = document.getElementById('sidebar-toggle-btn');
+    if (!layout || !btn) return;
+
+    const isMobile = () => window.matchMedia('(max-width: 768px)').matches;
+    const applyState = collapsed => {
+      if (isMobile()) {
+        layout.classList.remove('sidebar-collapsed');
+        layout.classList.toggle('sidebar-expanded-mobile', !collapsed);
+      } else {
+        layout.classList.remove('sidebar-expanded-mobile');
+        layout.classList.toggle('sidebar-collapsed', collapsed);
+      }
+      const label = collapsed ? 'Show filters' : 'Hide filters';
+      btn.setAttribute('aria-label', label);
+      btn.setAttribute('title', label);
+      btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    };
+
+    let collapsed = false;
+    let hasStoredPreference = false;
+    try {
+      const stored = localStorage.getItem(SIDEBAR_STATE_KEY);
+      hasStoredPreference = stored !== null;
+      collapsed = stored === 'true';
+    } catch { /* ignore */ }
+    if (!hasStoredPreference && isMobile()) collapsed = true;
+    applyState(collapsed);
+
+    btn.addEventListener('click', () => {
+      collapsed = !collapsed;
+      try {
+        localStorage.setItem(SIDEBAR_STATE_KEY, String(collapsed));
+      } catch { /* ignore */ }
+      applyState(collapsed);
+    });
+
+    window.addEventListener('resize', () => applyState(collapsed));
   }
 
   // ── Card Builder ─────────────────────────────────────────
@@ -172,6 +221,7 @@
     if (currentFilters.type) params.set('type', currentFilters.type);
     if (currentFilters.year) params.set('year', currentFilters.year);
     if (currentFilters.location) params.set('location', currentFilters.location);
+    if (currentFilters.source_location_id) params.set('source_location_id', currentFilters.source_location_id);
 
     try {
       const res = await fetch('/api/media?' + params.toString());
@@ -206,13 +256,26 @@
     if (!grid) return;
 
     try {
-      const res = await fetch('/api/media/featured');
+      const params = new URLSearchParams({
+        page: 1,
+        limit: 8,
+        sort: 'indexed_at',
+        order: 'DESC'
+      });
+
+      if (currentFilters.type) params.set('type', currentFilters.type);
+      if (currentFilters.year) params.set('year', currentFilters.year);
+      if (currentFilters.location) params.set('location', currentFilters.location);
+      if (currentFilters.source_location_id) params.set('source_location_id', currentFilters.source_location_id);
+
+      const res = await fetch('/api/media?' + params.toString());
       const data = await res.json();
 
-      (data.recent || []).slice(0, 8).forEach(item => grid.appendChild(buildCard(item)));
+      grid.innerHTML = '';
+      (data.items || []).forEach(item => grid.appendChild(buildCard(item)));
 
       const section = document.getElementById('featured-section');
-      if (section && data.recent.length === 0) section.style.display = 'none';
+      if (section) section.style.display = (data.items || []).length === 0 ? 'none' : '';
     } catch (err) {
       console.error('[app] Failed to load featured:', err);
     }
@@ -248,6 +311,7 @@
       });
     } catch { /* ignore */ }
   }
+        loadFeatured();
 
   async function loadLocationFilter() {
     const container = document.getElementById('location-filter');
@@ -268,11 +332,33 @@
     } catch { /* ignore */ }
   }
 
+  async function loadSourceLocationFilter() {
+    const container = document.getElementById('source-location-filter');
+      loadFeatured();
+    if (!container) return;
+    try {
+      const res = await fetch('/api/source-locations');
+      const rows = await res.json();
+      rows.forEach(({ id, name }) => {
+        sourceLocationLabels[String(id)] = name;
+        const label = document.createElement('label');
+        const input = document.createElement('input');
+        input.type = 'radio';
+        input.name = 'source_location_id';
+        input.value = String(id);
+        label.appendChild(input);
+        label.appendChild(document.createTextNode(` ${name}`));
+        container.appendChild(label);
+      });
+    } catch { /* ignore */ }
+  }
+
   function bindFilters() {
     document.querySelectorAll('input[name="type"]').forEach(el => {
       el.addEventListener('change', () => {
         currentFilters.type = FORCE_TYPE || el.value;
         renderActiveFilters();
+        loadFeatured();
         loadMedia(true);
       });
     });
@@ -282,11 +368,19 @@
       if (e.target.name === 'year') {
         currentFilters.year = e.target.value;
         renderActiveFilters();
+        loadFeatured();
         loadMedia(true);
       }
       if (e.target.name === 'location') {
         currentFilters.location = e.target.value;
         renderActiveFilters();
+        loadFeatured();
+        loadMedia(true);
+      }
+      if (e.target.name === 'source_location_id') {
+        currentFilters.source_location_id = e.target.value;
+        renderActiveFilters();
+        loadFeatured();
         loadMedia(true);
       }
     });
@@ -296,6 +390,7 @@
       sortSel.addEventListener('change', () => {
         currentFilters.sort = sortSel.value;
         renderActiveFilters();
+        loadFeatured();
         loadMedia(true);
       });
     }
@@ -306,8 +401,9 @@
 
   // ── Init ──────────────────────────────────────────────────
   async function init() {
+    initSidebarToggle();
     bindFilters();
-    await Promise.all([loadFeatured(), loadStats(), loadYearFilter(), loadLocationFilter()]);
+    await Promise.all([loadFeatured(), loadStats(), loadYearFilter(), loadLocationFilter(), loadSourceLocationFilter()]);
     syncFilterControls();
     renderActiveFilters();
     await loadMedia(true);

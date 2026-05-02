@@ -10,7 +10,7 @@ router.get('/media', (req, res) => {
   const db = getDb();
   const {
     type, page = 1, limit = 24, sort = 'indexed_at', order = 'DESC',
-    year, location, search
+    year, location, search, source_location_id
   } = req.query;
 
   const allowed_sorts = ['indexed_at', 'created_at', 'friendly_name', 'duration', 'size', 'view_count', 'year'];
@@ -40,6 +40,13 @@ router.get('/media', (req, res) => {
     const q = `%${search}%`;
     params.push(q, q, q, q);
   }
+  if (source_location_id) {
+    const sourceLocationId = parseInt(source_location_id, 10);
+    if (!Number.isNaN(sourceLocationId)) {
+      conditions.push('source_location_id = ?');
+      params.push(sourceLocationId);
+    }
+  }
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
@@ -47,6 +54,7 @@ router.get('/media', (req, res) => {
   const rows = db.prepare(
     `SELECT id, type, file_name, friendly_name, description, duration, width, height,
             size, thumbnail_path, year, location, tags, faces_detected, view_count,
+            source_location_id,
             created_at, indexed_at
      FROM media ${where}
      ORDER BY ${safeSort} ${safeOrder}
@@ -148,6 +156,20 @@ router.get('/locations', (req, res) => {
   const db = getDb();
   const rows = db.prepare(
     "SELECT location, COUNT(*) as count FROM media WHERE location IS NOT NULL AND location != '' GROUP BY location ORDER BY count DESC"
+  ).all();
+  res.json(rows);
+});
+
+// GET /api/source-locations
+router.get('/source-locations', (req, res) => {
+  const db = getDb();
+  const rows = db.prepare(
+    `SELECT sl.id, sl.name, COUNT(m.id) as count
+     FROM source_locations sl
+     LEFT JOIN media m ON m.source_location_id = sl.id
+     WHERE sl.enabled = 1
+     GROUP BY sl.id, sl.name
+     ORDER BY sl.name ASC`
   ).all();
   res.json(rows);
 });
