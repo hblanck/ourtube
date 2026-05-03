@@ -374,6 +374,14 @@ a { color: inherit; text-decoration: none; }
   backdrop-filter: blur(2px);
 }
 
+.card-collection-badge--stitch {
+  right: auto;
+  left: 30px;
+  background: rgba(148, 24, 24, 0.88);
+  color: #fff4e6;
+  max-width: none;
+}
+
 .card-info { padding: 10px 12px 12px; }
 
 .card-title {
@@ -429,6 +437,39 @@ a { color: inherit; text-decoration: none; }
   margin-bottom: 16px;
 }
 
+.stitched-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: -4px 2px 10px;
+}
+
+.stitched-time {
+  width: 44px;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.stitched-time:last-child {
+  text-align: right;
+}
+
+.stitched-seek {
+  flex: 1;
+}
+
+.video-js.stitched-progress-mode .vjs-progress-control {
+  display: none;
+}
+
+.video-js.stitched-progress-mode .vjs-current-time,
+.video-js.stitched-progress-mode .vjs-time-divider,
+.video-js.stitched-progress-mode .vjs-duration,
+.video-js.stitched-progress-mode .vjs-remaining-time {
+  display: none;
+}
+
 .photo-container {
   width: 100%;
   background: #111;
@@ -449,6 +490,28 @@ a { color: inherit; text-decoration: none; }
 .media-info { padding: 0 4px; }
 
 .media-title { font-size: 20px; font-weight: 600; margin-bottom: 10px; }
+
+.media-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.watch-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: #7f1d1d;
+  color: #fff4e6;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
 
 .media-meta {
   font-size: 13px;
@@ -540,6 +603,20 @@ a { color: inherit; text-decoration: none; }
   font-size: 10px;
   padding: 1px 4px;
   border-radius: 3px;
+}
+
+.related-badge {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  background: rgba(127, 29, 29, 0.9);
+  color: #fff4e6;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 5px;
+  border-radius: 3px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
 }
 
 .related-info { flex: 1; min-width: 0; }

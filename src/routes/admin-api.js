@@ -178,7 +178,14 @@ router.get('/skipped-files', (req, res) => {
 // POST /api/admin/locations
 router.post('/locations', (req, res) => {
   const db = getDb();
-  const { name, path: locPath, entries, type = 'both', scan_interval = 3600 } = req.body;
+  const {
+    name,
+    path: locPath,
+    entries,
+    type = 'both',
+    scan_interval = 3600,
+    stitch_directories = 0,
+  } = req.body;
   const normalizedEntries = normalizeEntriesInput(entries, locPath);
   if (!name || !normalizedEntries.length) {
     return res.status(400).json({ error: 'name and at least one path entry are required' });
@@ -187,8 +194,8 @@ router.post('/locations', (req, res) => {
   const createTx = db.transaction(() => {
     const firstPath = normalizedEntries[0].path;
     const result = db.prepare(
-      'INSERT INTO source_locations (name, path, type, scan_interval) VALUES (?, ?, ?, ?)'
-    ).run(name, firstPath, type, scan_interval);
+      'INSERT INTO source_locations (name, path, type, scan_interval, stitch_directories) VALUES (?, ?, ?, ?, ?)'
+    ).run(name, firstPath, type, scan_interval, stitch_directories ? 1 : 0);
 
     const locationId = Number(result.lastInsertRowid);
     const insertEntry = db.prepare(
@@ -210,7 +217,7 @@ router.post('/locations', (req, res) => {
 // PUT /api/admin/locations/:id
 router.put('/locations/:id', (req, res) => {
   const db = getDb();
-  const { name, path: locPath, entries, type, scan_interval, enabled } = req.body;
+  const { name, path: locPath, entries, type, scan_interval, enabled, stitch_directories } = req.body;
   const loc = db.prepare('SELECT * FROM source_locations WHERE id = ?').get(req.params.id);
   if (!loc) return res.status(404).json({ error: 'Not found' });
 
@@ -228,9 +235,18 @@ router.put('/locations/:id', (req, res) => {
         path = ?,
         type = COALESCE(?, type),
         scan_interval = COALESCE(?, scan_interval),
+        stitch_directories = COALESCE(?, stitch_directories),
         enabled = COALESCE(?, enabled)
       WHERE id = ?`
-    ).run(name ?? null, nextPath, type ?? null, scan_interval ?? null, enabled ?? null, req.params.id);
+    ).run(
+      name ?? null,
+      nextPath,
+      type ?? null,
+      scan_interval ?? null,
+      stitch_directories ?? null,
+      enabled ?? null,
+      req.params.id
+    );
 
     if (normalizedEntries) {
       db.prepare('DELETE FROM source_location_entries WHERE source_location_id = ?').run(req.params.id);

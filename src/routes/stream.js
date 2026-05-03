@@ -9,9 +9,72 @@ const ffmpeg = require('fluent-ffmpeg');
 const { PassThrough } = require('stream');
 const { getDb } = require('../db');
 const { upsertSession, touchSession, addBytes } = require('../sessions');
+const { getStitchGroupPath, isVirtualMediaId, parseVirtualMediaId, sortSegmentRows } = require('../virtual-media');
 
 const DATA_DIR = process.env.DATA_DIR || '/data';
 const router = express.Router();
+
+function escapeConcatPath(filePath) {
+  return `'${String(filePath).replace(/'/g, `'\\''`)}'`;
+}
+
+function createConcatListFile(filePaths) {
+  const tempDir = path.join(DATA_DIR, 'tmp');
+  fs.mkdirSync(tempDir, { recursive: true });
+
+  const listPath = path.join(tempDir, `virtual-${Date.now()}-${Math.random().toString(16).slice(2)}.txt`);
+  const content = filePaths.map(filePath => `file ${escapeConcatPath(filePath)}`).join('\n');
+  fs.writeFileSync(listPath, content, 'utf8');
+  return listPath;
+}
+
+function cleanupFile(filePath) {
+  if (!filePath) return;
+  try {
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  } catch (err) {
+    console.warn('[stream] Failed to remove temp file:', filePath, err.message);
+  }
+}
+
+function getVirtualSegmentRows(db, mediaId) {
+  const virtualRef = parseVirtualMediaId(mediaId);
+  if (!virtualRef) return null;
+
+  const rows = db.prepare(
+    `SELECT m.id, m.type, m.file_path, m.file_name, m.duration, m.created_at, m.modified_at,
+            m.source_location_id, sl.stitch_directories,
+            (
+              SELECT sle.entry_path
+              FROM source_location_entries sle
+              WHERE sle.source_location_id = m.source_location_id
+                AND (
+                  (sle.entry_type = 'file' AND sle.entry_path = m.file_path)
+                  OR (sle.entry_type = 'directory' AND (m.file_path = sle.entry_path OR m.file_path LIKE sle.entry_path || '/%'))
+                )
+              ORDER BY LENGTH(sle.entry_path) DESC
+              LIMIT 1
+            ) AS source_entry_path,
+            (
+              SELECT sle.entry_type
+              FROM source_location_entries sle
+              WHERE sle.source_location_id = m.source_location_id
+                AND (
+                  (sle.entry_type = 'file' AND sle.entry_path = m.file_path)
+                  OR (sle.entry_type = 'directory' AND (m.file_path = sle.entry_path OR m.file_path LIKE sle.entry_path || '/%'))
+                )
+              ORDER BY LENGTH(sle.entry_path) DESC
+              LIMIT 1
+            ) AS source_entry_type
+     FROM media m
+     LEFT JOIN source_locations sl ON sl.id = m.source_location_id
+     WHERE m.source_location_id = ? AND m.type = 'video'`
+  ).all(virtualRef.sourceLocationId);
+
+  const segmentRows = rows.filter(row => getStitchGroupPath(row) === virtualRef.groupPath);
+  if (!segmentRows.length) return null;
+  return sortSegmentRows(segmentRows);
+}
 
 function getAudioCodec(row) {
   try {
@@ -43,6 +106,67 @@ function getStreamMimeType(row, filePath) {
 // GET /stream/:id/transcode - browser-compatible MP4 fallback stream
 router.get('/:id/transcode', (req, res) => {
   const db = getDb();
+  const virtualSegments = getVirtualSegmentRows(db, req.params.id);
+
+  if (virtualSegments) {
+    const concatListPath = createConcatListFile(virtualSegments.map(row => row.file_path));
+    const sessionId = upsertSession({
+      mediaId: req.params.id,
+      title: path.basename(path.dirname(virtualSegments[0].file_path) || virtualSegments[0].file_name),
+      type: 'transcode',
+      ip: req.ip || req.socket?.remoteAddress || 'unknown',
+      userAgent: req.headers['user-agent'] || '',
+    });
+
+    res.writeHead(200, {
+      'Content-Type': 'video/mp4',
+      'Cache-Control': 'no-store',
+      Connection: 'keep-alive',
+      'Transfer-Encoding': 'chunked'
+    });
+
+    const cmd = ffmpeg()
+      .input(concatListPath)
+      .inputOptions(['-f concat', '-safe 0'])
+      .videoCodec('libx264')
+      .audioCodec('aac')
+      .format('mp4')
+      .outputOptions([
+        '-movflags frag_keyframe+empty_moov+faststart',
+        '-preset veryfast',
+        '-crf 23',
+        '-max_muxing_queue_size 1024'
+      ])
+      .on('end', () => cleanupFile(concatListPath))
+      .on('error', err => {
+        cleanupFile(concatListPath);
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'Virtual transcode failed' });
+        } else {
+          res.end();
+        }
+        console.error('[stream] Virtual transcode error:', err.message);
+      });
+
+    const pass = new PassThrough();
+    pass.on('data', chunk => addBytes(sessionId, chunk.length));
+
+    req.on('close', () => {
+      touchSession(sessionId);
+      cleanupFile(concatListPath);
+      try { cmd.kill('SIGKILL'); } catch { /* ignore */ }
+    });
+
+    res.on('finish', () => {
+      touchSession(sessionId);
+      cleanupFile(concatListPath);
+    });
+
+    cmd.pipe(pass, { end: true });
+    pass.pipe(res, { end: true });
+    return;
+  }
+
   const row = db.prepare('SELECT * FROM media WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Not found' });
   if (row.type !== 'video') return res.status(400).json({ error: 'Not a video' });
@@ -101,6 +225,10 @@ router.get('/:id/transcode', (req, res) => {
 // GET /stream/:id  - HTTP range-supporting video stream (read-only)
 router.get('/:id', (req, res) => {
   const db = getDb();
+  if (isVirtualMediaId(req.params.id)) {
+    return res.status(400).json({ error: 'Virtual videos require compatibility streaming' });
+  }
+
   const row = db.prepare('SELECT * FROM media WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Not found' });
   if (row.type !== 'video') return res.status(400).json({ error: 'Not a video' });

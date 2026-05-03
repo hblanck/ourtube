@@ -9,6 +9,12 @@ const DB_PATH = path.join(DATA_DIR, 'ourtube.db');
 
 let db;
 
+function ensureColumn(tableName, columnName, definition) {
+  const columns = db.prepare(`PRAGMA table_info(${tableName})`).all();
+  if (columns.some(column => column.name === columnName)) return;
+  db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
+}
+
 function initDb() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 
@@ -22,6 +28,7 @@ function initDb() {
       name TEXT NOT NULL,
       path TEXT NOT NULL,
       type TEXT NOT NULL DEFAULT 'both',
+      stitch_directories INTEGER NOT NULL DEFAULT 0,
       enabled INTEGER NOT NULL DEFAULT 1,
       scan_interval INTEGER NOT NULL DEFAULT 3600,
       last_scanned TEXT,
@@ -97,6 +104,8 @@ function initDb() {
     CREATE INDEX IF NOT EXISTS idx_skipped_files_last_seen ON skipped_files(last_seen_at);
     CREATE INDEX IF NOT EXISTS idx_location_entries_location_id ON source_location_entries(source_location_id);
   `);
+
+  ensureColumn('source_locations', 'stitch_directories', 'INTEGER NOT NULL DEFAULT 0');
 
   // Insert default settings if not present
   const insertSetting = db.prepare(

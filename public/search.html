@@ -62,12 +62,14 @@
         const card = document.createElement('a');
         card.href = `/watch.html?id=${item.id}`;
         card.className = 'media-card';
-        const thumb = `/thumbnail/${item.id}`;
+        const thumb = `/thumbnail/${item.thumbnail_media_id || item.id}`;
         card.innerHTML = `
           <div class="card-thumb-wrap">
             <img class="card-thumb" src="${thumb}" alt="${escHtml(item.friendly_name || item.file_name)}" loading="lazy" />
             ${item.type === 'video' && item.duration ? `<span class="card-duration">${fmtDur(item.duration)}</span>` : ''}
             <span class="card-type-badge">${item.type === 'video' ? '🎬' : '📷'}</span>
+            ${item.is_virtual ? `<span class="card-collection-badge card-collection-badge--stitch">Stitched Video</span>` : ''}
+            ${item.is_virtual ? `<span class="card-collection-badge">${item.segment_count} clips</span>` : ''}
           </div>
           <div class="card-info">
             <div class="card-title">${escHtml(item.friendly_name || item.file_name)}</div>

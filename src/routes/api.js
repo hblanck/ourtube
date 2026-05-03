@@ -2,6 +2,14 @@
 
 const express = require('express');
 const { getDb } = require('../db');
+const {
+  aggregateMediaRows,
+  buildVirtualMediaItem,
+  getStitchGroupPath,
+  parseTags,
+  parseVirtualMediaId,
+  sortMediaItems,
+} = require('../virtual-media');
 
 const router = express.Router();
 
@@ -17,8 +25,9 @@ router.get('/media', (req, res) => {
   const safeSort = allowed_sorts.includes(sort) ? sort : 'indexed_at';
   const safeOrder = order.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
-  const offset = (Math.max(1, parseInt(page)) - 1) * Math.min(100, parseInt(limit));
-  const pageLimit = Math.min(100, parseInt(limit));
+  const safePage = Math.max(1, parseInt(page, 10) || 1);
+  const pageLimit = Math.min(100, Math.max(1, parseInt(limit, 10) || 24));
+  const offset = (safePage - 1) * pageLimit;
 
   const conditions = [];
   const aliasedConditions = [];
@@ -57,11 +66,11 @@ router.get('/media', (req, res) => {
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
   const aliasedWhere = aliasedConditions.length ? `WHERE ${aliasedConditions.join(' AND ')}` : '';
 
-  const total = db.prepare(`SELECT COUNT(*) as cnt FROM media ${where}`).get(...params).cnt;
   const rows = db.prepare(
-    `SELECT m.id, m.type, m.file_name, m.friendly_name, m.description, m.duration, m.width, m.height,
+    `SELECT m.id, m.type, m.file_path, m.file_name, m.friendly_name, m.description, m.duration, m.width, m.height,
             m.size, m.thumbnail_path, m.year, m.location, m.tags, m.faces_detected, m.view_count,
             m.source_location_id, sl.name AS source_location_name, sl.path AS source_location_path,
+            sl.stitch_directories,
             (
               SELECT sle.entry_path
               FROM source_location_entries sle
@@ -84,34 +93,61 @@ router.get('/media', (req, res) => {
               ORDER BY LENGTH(sle.entry_path) DESC
               LIMIT 1
             ) AS source_entry_type,
-            m.created_at, m.indexed_at
+            m.created_at, m.modified_at, m.indexed_at
      FROM media m
      LEFT JOIN source_locations sl ON sl.id = m.source_location_id
-     ${aliasedWhere}
-     ORDER BY m.${safeSort} ${safeOrder}
-     LIMIT ? OFFSET ?`
-  ).all(...params, pageLimit, offset);
+               ${aliasedWhere}`
+  ).all(...params);
 
-  rows.forEach(r => {
-    try { r.tags = JSON.parse(r.tags || '[]'); } catch { r.tags = []; }
+  const items = sortMediaItems(aggregateMediaRows(rows), safeSort, safeOrder);
+
+  res.json({
+    total: items.length,
+    page: safePage,
+    limit: pageLimit,
+    items: items.slice(offset, offset + pageLimit)
   });
-
-  res.json({ total, page: parseInt(page), limit: pageLimit, items: rows });
 });
 
 // GET /api/media/featured - must be before /api/media/:id
 router.get('/media/featured', (req, res) => {
   const db = getDb();
 
-  const recent = db.prepare(
-    `SELECT id, type, file_name, friendly_name, duration, thumbnail_path, year, view_count, indexed_at
-     FROM media ORDER BY indexed_at DESC LIMIT 12`
+  const rows = db.prepare(
+    `SELECT m.id, m.type, m.file_path, m.file_name, m.friendly_name, m.description, m.duration, m.width, m.height,
+            m.size, m.thumbnail_path, m.year, m.location, m.tags, m.faces_detected, m.view_count,
+            m.source_location_id, sl.name AS source_location_name, sl.path AS source_location_path,
+            sl.stitch_directories,
+            (
+              SELECT sle.entry_path
+              FROM source_location_entries sle
+              WHERE sle.source_location_id = m.source_location_id
+                AND (
+                  (sle.entry_type = 'file' AND sle.entry_path = m.file_path)
+                  OR (sle.entry_type = 'directory' AND (m.file_path = sle.entry_path OR m.file_path LIKE sle.entry_path || '/%'))
+                )
+              ORDER BY LENGTH(sle.entry_path) DESC
+              LIMIT 1
+            ) AS source_entry_path,
+            (
+              SELECT sle.entry_type
+              FROM source_location_entries sle
+              WHERE sle.source_location_id = m.source_location_id
+                AND (
+                  (sle.entry_type = 'file' AND sle.entry_path = m.file_path)
+                  OR (sle.entry_type = 'directory' AND (m.file_path = sle.entry_path OR m.file_path LIKE sle.entry_path || '/%'))
+                )
+              ORDER BY LENGTH(sle.entry_path) DESC
+              LIMIT 1
+            ) AS source_entry_type,
+            m.created_at, m.modified_at, m.indexed_at
+     FROM media m
+     LEFT JOIN source_locations sl ON sl.id = m.source_location_id`
   ).all();
 
-  const popular = db.prepare(
-    `SELECT id, type, file_name, friendly_name, duration, thumbnail_path, year, view_count, indexed_at
-     FROM media WHERE view_count > 0 ORDER BY view_count DESC LIMIT 6`
-  ).all();
+  const items = aggregateMediaRows(rows);
+  const recent = sortMediaItems(items, 'indexed_at', 'DESC').slice(0, 12);
+  const popular = sortMediaItems(items.filter(item => (item.view_count || 0) > 0), 'view_count', 'DESC').slice(0, 6);
 
   res.json({ recent, popular });
 });
@@ -119,10 +155,54 @@ router.get('/media/featured', (req, res) => {
 // GET /api/media/:id
 router.get('/media/:id', (req, res) => {
   const db = getDb();
+  const virtualRef = parseVirtualMediaId(req.params.id);
+
+  if (virtualRef) {
+    const rows = db.prepare(
+      `SELECT m.id, m.type, m.file_path, m.file_name, m.friendly_name, m.description, m.duration, m.width, m.height,
+              m.size, m.thumbnail_path, m.year, m.location, m.tags, m.faces_detected, m.view_count,
+              m.source_location_id, sl.name AS source_location_name, sl.path AS source_location_path,
+              sl.stitch_directories,
+              (
+                SELECT sle.entry_path
+                FROM source_location_entries sle
+                WHERE sle.source_location_id = m.source_location_id
+                  AND (
+                    (sle.entry_type = 'file' AND sle.entry_path = m.file_path)
+                    OR (sle.entry_type = 'directory' AND (m.file_path = sle.entry_path OR m.file_path LIKE sle.entry_path || '/%'))
+                  )
+                ORDER BY LENGTH(sle.entry_path) DESC
+                LIMIT 1
+              ) AS source_entry_path,
+              (
+                SELECT sle.entry_type
+                FROM source_location_entries sle
+                WHERE sle.source_location_id = m.source_location_id
+                  AND (
+                    (sle.entry_type = 'file' AND sle.entry_path = m.file_path)
+                    OR (sle.entry_type = 'directory' AND (m.file_path = sle.entry_path OR m.file_path LIKE sle.entry_path || '/%'))
+                  )
+                ORDER BY LENGTH(sle.entry_path) DESC
+                LIMIT 1
+              ) AS source_entry_type,
+              m.created_at, m.modified_at, m.indexed_at, m.raw_metadata
+       FROM media m
+       LEFT JOIN source_locations sl ON sl.id = m.source_location_id
+       WHERE m.source_location_id = ? AND m.type = 'video'`
+    ).all(virtualRef.sourceLocationId);
+
+    const segmentRows = rows.filter(row => getStitchGroupPath(row) === virtualRef.groupPath);
+    if (!segmentRows.length) return res.status(404).json({ error: 'Not found' });
+
+    const row = buildVirtualMediaItem(segmentRows, { includeSegments: true });
+    res.json(row);
+    return;
+  }
+
   const row = db.prepare('SELECT * FROM media WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Not found' });
 
-  try { row.tags = JSON.parse(row.tags || '[]'); } catch { row.tags = []; }
+  row.tags = parseTags(row.tags);
   try { row.raw_metadata = JSON.parse(row.raw_metadata || '{}'); } catch { row.raw_metadata = {}; }
 
   db.prepare('UPDATE media SET view_count = view_count + 1 WHERE id = ?').run(req.params.id);
@@ -155,6 +235,10 @@ router.get('/search', (req, res) => {
      WHERE friendly_name LIKE ? OR description LIKE ? OR location LIKE ? OR tags LIKE ? OR file_name LIKE ?
      ORDER BY indexed_at DESC LIMIT ? OFFSET ?`
   ).all(search, search, search, search, search, pageLimit, offset);
+
+  items.forEach(item => {
+    item.tags = parseTags(item.tags);
+  });
 
   res.json({ total, page: parseInt(page), limit: pageLimit, items });
 });

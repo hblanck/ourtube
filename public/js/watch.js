@@ -14,6 +14,8 @@
   let transcodeFallbackTried = false;
   let compatibilityMode = false;
   let expectedDuration = 0;
+  let stitchedPlayback = false;
+  let isSeekingStitched = false;
 
   function escHtml(str) {
     return String(str || '')
@@ -53,6 +55,66 @@
     el.appendChild(document.createTextNode(` ${value}`));
   }
 
+  function getStitchedProgressElements() {
+    return {
+      container: document.getElementById('stitched-progress'),
+      seek: document.getElementById('stitched-seek'),
+      current: document.getElementById('stitched-current'),
+      total: document.getElementById('stitched-total')
+    };
+  }
+
+  function updateStitchedProgress() {
+    const { container, seek, current, total } = getStitchedProgressElements();
+    if (!container || !seek || !current || !total) return;
+
+    const shouldShow = stitchedPlayback && compatibilityMode && expectedDuration > 0;
+    container.style.display = shouldShow ? 'flex' : 'none';
+
+    const playerRoot = player?.el();
+    if (playerRoot) {
+      playerRoot.classList.toggle('stitched-progress-mode', shouldShow);
+    }
+
+    if (!shouldShow || !player) return;
+
+    const currentTime = Math.max(0, Math.min(player.currentTime() || 0, expectedDuration));
+    seek.max = String(expectedDuration);
+    if (!isSeekingStitched) seek.value = String(currentTime);
+    current.textContent = fmtDur(currentTime);
+    total.textContent = fmtDur(expectedDuration);
+  }
+
+  function bindStitchedProgressEvents() {
+    const { seek } = getStitchedProgressElements();
+    if (!seek || seek.dataset.bound === '1') return;
+
+    seek.addEventListener('pointerdown', () => {
+      isSeekingStitched = true;
+    });
+
+    seek.addEventListener('input', () => {
+      const { current } = getStitchedProgressElements();
+      if (current) current.textContent = fmtDur(parseFloat(seek.value) || 0);
+    });
+
+    const commitSeek = () => {
+      if (player && Number.isFinite(parseFloat(seek.value))) {
+        player.currentTime(parseFloat(seek.value));
+      }
+      isSeekingStitched = false;
+      updateStitchedProgress();
+    };
+
+    seek.addEventListener('change', commitSeek);
+    seek.addEventListener('pointerup', commitSeek);
+    seek.addEventListener('keyup', event => {
+      if (event.key === 'Enter' || event.key === ' ') commitSeek();
+    });
+
+    seek.dataset.bound = '1';
+  }
+
   function syncCompatibilityDurationUi() {
     if (!player || !compatibilityMode || !expectedDuration) return;
 
@@ -69,6 +131,7 @@
     setTimeControlDisplay(root.querySelector('.vjs-current-time-display'), fmtDur(current));
     setTimeControlDisplay(root.querySelector('.vjs-duration-display'), fmtDur(expectedDuration));
     setTimeControlDisplay(root.querySelector('.vjs-remaining-time-display'), `-${fmtDur(Math.max(expectedDuration - current, 0))}`);
+    updateStitchedProgress();
   }
 
   function initVideo(media) {
@@ -83,9 +146,12 @@
     if (compatibilityBadge) compatibilityBadge.style.display = 'none';
     transcodeFallbackTried = false;
     expectedDuration = media.duration || 0;
+    stitchedPlayback = !!media.is_virtual;
+    bindStitchedProgressEvents();
+    updateStitchedProgress();
 
     if (player) {
-      setVideoSource(media, false);
+      setVideoSource(media, shouldPreferTranscode(media));
       return;
     }
 
@@ -101,6 +167,9 @@
     player.on('durationchange', syncCompatibilityDurationUi);
     player.on('timeupdate', syncCompatibilityDurationUi);
     player.on('loadeddata', syncCompatibilityDurationUi);
+    player.on('seeked', updateStitchedProgress);
+    player.on('pause', updateStitchedProgress);
+    player.on('play', updateStitchedProgress);
 
     player.on('error', () => {
       if (!transcodeFallbackTried) {
@@ -138,9 +207,11 @@
     const warning = document.getElementById('playback-warning');
     if (warning) warning.style.display = 'none';
     player.src({ src: `/stream/${media.id}`, type: getMime(media) });
+    updateStitchedProgress();
   }
 
   function shouldPreferTranscode(media) {
+    if (media.is_virtual) return true;
     const ext = (media.file_name || '').split('.').pop().toLowerCase();
     if (['mkv', 'avi', 'wmv', 'flv', 'mpg', 'mpeg', '3gp'].includes(ext)) return true;
     return !canPlayDirectly(media);
@@ -184,6 +255,8 @@
     if (warningEl) warningEl.style.display = 'none';
     const compatibilityBadge = document.getElementById('compatibility-badge');
     if (compatibilityBadge) compatibilityBadge.style.display = 'none';
+    stitchedPlayback = false;
+    updateStitchedProgress();
     const photoContainer = document.getElementById('photo-container');
     photoContainer.style.display = '';
     const img = document.getElementById('photo-img');
@@ -196,9 +269,13 @@
     document.getElementById('media-title').textContent =
       media.friendly_name || media.file_name;
 
+    const stitchedBadge = document.getElementById('stitched-badge');
+    if (stitchedBadge) stitchedBadge.style.display = media.is_virtual ? 'inline-flex' : 'none';
+
     const metaEl = document.getElementById('media-meta');
     const parts = [];
     if (media.duration) parts.push(`<span>⏱ ${fmtDur(media.duration)}</span>`);
+    if (media.segment_count && media.segment_count > 1) parts.push(`<span>🎞 ${media.segment_count} stitched clips</span>`);
     if (media.year) parts.push(`<span>📅 ${media.year}</span>`);
     if (media.location) parts.push(`<span>📍 ${escHtml(media.location)}</span>`);
     if (media.width && media.height) parts.push(`<span>🖥 ${media.width}×${media.height}</span>`);
@@ -240,12 +317,13 @@
         const card = document.createElement('a');
         card.href = `/watch.html?id=${item.id}`;
         card.className = 'related-card';
-        const thumb = `/thumbnail/${item.id}`;
+        const thumb = `/thumbnail/${item.thumbnail_media_id || item.id}`;
         card.innerHTML = `
           <div class="related-thumb-wrap">
             <img class="related-thumb" src="${thumb}" alt="${escHtml(item.friendly_name || item.file_name)}"
                  loading="lazy" onerror="this.src='/img/no-thumb.svg'" />
             ${item.duration ? `<span class="related-duration">${fmtDur(item.duration)}</span>` : ''}
+            ${item.is_virtual ? '<span class="related-badge">Stitched</span>' : ''}
           </div>
           <div class="related-info">
             <div class="related-title">${escHtml(item.friendly_name || item.file_name)}</div>

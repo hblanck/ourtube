@@ -224,6 +224,15 @@
             Enabled
           </label>
         </div>
+        <div class="form-group">
+          <label class="form-label" style="display:flex;align-items:flex-start;gap:8px;cursor:pointer">
+            <input type="checkbox" name="stitch_directories" value="1" />
+            <span>
+              Stitch folder clips into one virtual video
+              <div style="font-size:12px;color:#666;font-weight:400;margin-top:4px">When enabled, videos inside each selected folder or first-level child folder are shown as one longer watchable item.</div>
+            </span>
+          </label>
+        </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" onclick="closeModal('location-modal')">Cancel</button>
           <button type="submit" class="btn btn-primary">Save</button>
@@ -436,6 +445,11 @@
 
   // ── Locations ────────────────────────────────────────────
   let locationEntries = [];
+  let stitchPromptShown = false;
+
+  function markStitchEdited() {
+    stitchPromptShown = true;
+  }
 
   function renderLocationEntries() {
     const el = document.getElementById('location-entries-list');
@@ -465,6 +479,16 @@
     const key = cleanPath.toLowerCase();
     if (locationEntries.some(e => e.path.toLowerCase() === key)) return;
     locationEntries.push({ path: cleanPath, type: cleanType });
+
+    const stitchInput = document.querySelector('#location-form [name=stitch_directories]');
+    const locationId = document.querySelector('#location-form [name=id]')?.value;
+    if (cleanType === 'directory' && stitchInput && !locationId && !stitchPromptShown) {
+      stitchPromptShown = true;
+      if (confirm('Show videos from this folder as one stitched virtual video when possible?')) {
+        stitchInput.checked = true;
+      }
+    }
+
     renderLocationEntries();
   }
 
@@ -493,7 +517,7 @@
       <tr>
         <td><strong>${escHtml(l.name)}</strong></td>
         <td><code style="font-size:12px">${escHtml((l.entries && l.entries[0] && l.entries[0].path) || l.path)}${(l.entries && l.entries.length > 1) ? ` (+${l.entries.length - 1} more)` : ''}</code></td>
-        <td>${escHtml(l.type)}</td>
+        <td>${escHtml(l.type)}${l.stitch_directories ? '<div style="font-size:11px;color:#2563eb">stitched folders</div>' : ''}</td>
         <td>${l.enabled ? '✅' : '❌'}</td>
         <td>${l.scan_interval}s</td>
         <td style="font-size:12px">${l.last_scanned ? fmtDate(l.last_scanned) : 'Never'}</td>
@@ -510,7 +534,9 @@
     const form = document.getElementById('location-form');
     form.reset();
     form.querySelector('[name=id]').value = '';
+    form.querySelector('[name=stitch_directories]').checked = false;
     locationEntries = [];
+    stitchPromptShown = false;
     renderLocationEntries();
     document.getElementById('location-entry-path').value = '/media';
     document.getElementById('location-entry-type').value = 'directory';
@@ -530,9 +556,11 @@
     form.querySelector('[name=type]').value = loc.type;
     form.querySelector('[name=scan_interval]').value = loc.scan_interval;
     form.querySelector('[name=enabled]').checked = !!loc.enabled;
+    form.querySelector('[name=stitch_directories]').checked = !!loc.stitch_directories;
     locationEntries = Array.isArray(loc.entries) && loc.entries.length
       ? loc.entries.map(entry => ({ path: entry.path, type: entry.type === 'file' ? 'file' : 'directory' }))
       : [{ path: loc.path, type: 'directory' }];
+    stitchPromptShown = true;
     renderLocationEntries();
     document.getElementById('location-entry-path').value = '';
     document.getElementById('location-entry-type').value = 'directory';
@@ -630,6 +658,8 @@
     closePathBrowser();
   }
 
+  document.querySelector('#location-form [name=stitch_directories]').addEventListener('change', markStitchEdited);
+
   document.getElementById('location-form').addEventListener('submit', async e => {
     e.preventDefault();
     const form = e.target;
@@ -647,6 +677,7 @@
       entries,
       type: form.querySelector('[name=type]').value,
       scan_interval: parseInt(form.querySelector('[name=scan_interval]').value),
+      stitch_directories: form.querySelector('[name=stitch_directories]').checked ? 1 : 0,
       enabled: form.querySelector('[name=enabled]').checked ? 1 : 0
     };
     if (id) {

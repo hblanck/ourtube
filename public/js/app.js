@@ -176,7 +176,7 @@
     card.href = `/watch.html?id=${item.id}`;
     card.className = 'media-card';
 
-    const thumb = `/thumbnail/${item.id}`;
+    const thumb = `/thumbnail/${item.thumbnail_media_id || item.id}`;
     const isVideo = item.type === 'video';
     const name = escHtml(item.friendly_name || item.file_name);
 
@@ -190,6 +190,8 @@
              onerror="this.src='/img/no-thumb.svg'" />
         ${isVideo && item.duration ? `<span class="card-duration">${fmtDur(item.duration)}</span>` : ''}
         <span class="card-type-badge">${isVideo ? '🎬' : '📷'}</span>
+        ${item.is_virtual ? `<span class="card-collection-badge card-collection-badge--stitch">Stitched Video</span>` : ''}
+        ${item.is_virtual ? `<span class="card-collection-badge">${item.segment_count} clips</span>` : ''}
         ${collectionName ? `<span class="card-collection-badge">${escHtml(collectionName)}</span>` : ''}
       </div>
       <div class="card-info">

@@ -152,7 +152,9 @@ async function indexFile(filePath, locationId) {
   let stat;
   try {
     stat = fs.statSync(filePath);
-  } catch {
+  } catch (err) {
+    scanWarn(`[scanner] Cannot stat file ${filePath}: ${err.message}`);
+    recordSkippedFile(filePath, `inaccessible file: ${err.message}`, locationId);
     return null;
   }
 
@@ -277,6 +279,8 @@ async function scanLocation(location) {
       stat = fs.statSync(entry.path);
     } catch (err) {
       scanWarn(`[scanner] Cannot stat path ${entry.path}: ${err.message}`);
+      scanStatus.filesSkipped++;
+      recordSkippedFile(entry.path, `cannot stat path: ${err.message}`, location.id);
       continue;
     }
 
@@ -310,9 +314,13 @@ async function scanLocation(location) {
   for (const filePath of files) {
     scanStatus.filesFound++;
     try {
-      await indexFile(filePath, location.id);
-      indexed++;
-      scanStatus.filesIndexed++;
+      const mediaId = await indexFile(filePath, location.id);
+      if (mediaId) {
+        indexed++;
+        scanStatus.filesIndexed++;
+      } else {
+        scanStatus.filesSkipped++;
+      }
     } catch (err) {
       errors++;
       scanStatus.errors++;
