@@ -13,6 +13,7 @@
   let player = null;
   let transcodeFallbackTried = false;
   let compatibilityMode = false;
+  let compatibilityTransport = 'none';
   let expectedDuration = 0;
   let stitchedPlayback = false;
   let isSeekingStitched = false;
@@ -143,7 +144,7 @@
 
   function getTimelineCurrentTime() {
     if (!player) return 0;
-    const base = (stitchedPlayback && compatibilityMode) ? stitchedSeekOffset : 0;
+    const base = (stitchedPlayback && compatibilityMode && compatibilityTransport === 'transcode') ? stitchedSeekOffset : 0;
     return base + (player.currentTime() || 0);
   }
 
@@ -153,6 +154,25 @@
     // Ensure browsers do not reuse a stale transcode response when scrubbing.
     url.searchParams.set('_ts', String(Date.now()));
     return url.pathname + url.search;
+  }
+
+  function buildHlsUrl(media) {
+    const url = new URL(`/stream/${media.id}/hls/index.m3u8`, location.origin);
+    // Keep parity with transcode URL cache-busting behavior.
+    url.searchParams.set('_ts', String(Date.now()));
+    return url.pathname + url.search;
+  }
+
+  function isLikelyIOS() {
+    const ua = navigator.userAgent || '';
+    const iOS = /iPad|iPhone|iPod/.test(ua);
+    const iPadOS = /Macintosh/.test(ua) && navigator.maxTouchPoints > 1;
+    return iOS || iPadOS;
+  }
+
+  function shouldUseHlsCompatibility(media) {
+    // iOS Safari is more reliable with HLS than live MP4 transcoding for stitched videos.
+    return !!media?.is_virtual && isLikelyIOS();
   }
 
   function seekStitchedPlayback(targetSeconds) {
@@ -174,7 +194,7 @@
     const { container, seek, current, total, notice } = getStitchedProgressElements();
     if (!container || !seek || !current || !total) return;
 
-    const shouldShow = stitchedPlayback && compatibilityMode && expectedDuration > 0;
+    const shouldShow = stitchedPlayback && compatibilityMode && compatibilityTransport === 'transcode' && expectedDuration > 0;
     container.style.display = shouldShow ? 'flex' : 'none';
     if (notice) notice.style.display = shouldShow ? 'block' : 'none';
 
@@ -208,7 +228,7 @@
     const commitSeek = () => {
       const seekValue = parseFloat(seek.value);
       if (player && Number.isFinite(seekValue)) {
-        if (stitchedPlayback && compatibilityMode) {
+        if (stitchedPlayback && compatibilityMode && compatibilityTransport === 'transcode') {
           seekStitchedPlayback(seekValue);
         } else {
           player.currentTime(seekValue);
@@ -253,7 +273,7 @@
       const offset = parseFloat(trigger.getAttribute('data-segment-offset'));
       if (!Number.isFinite(offset) || !player) return;
 
-      if (stitchedPlayback && compatibilityMode) {
+      if (stitchedPlayback && compatibilityMode && compatibilityTransport === 'transcode') {
         seekStitchedPlayback(offset);
         player.play().catch(() => {});
         return;
@@ -267,7 +287,7 @@
   }
 
   function syncCompatibilityDurationUi() {
-    if (!player || !compatibilityMode || !expectedDuration) return;
+    if (!player || !compatibilityMode || compatibilityTransport !== 'transcode' || !expectedDuration) return;
 
     try {
       if (!Number.isFinite(player.duration()) || Math.abs(player.duration() - expectedDuration) > 1) {
@@ -360,10 +380,20 @@
   function setVideoSource(media, useTranscode) {
     if (!player) return;
     compatibilityMode = useTranscode;
+    compatibilityTransport = useTranscode ? (shouldUseHlsCompatibility(media) ? 'hls' : 'transcode') : 'none';
     const compatibilityBadge = document.getElementById('compatibility-badge');
     if (compatibilityBadge) compatibilityBadge.style.display = useTranscode ? 'block' : 'none';
     if (useTranscode) {
-      const startSeconds = (stitchedPlayback && compatibilityMode) ? stitchedSeekOffset : 0;
+      if (compatibilityTransport === 'hls') {
+        const warning = document.getElementById('playback-warning');
+        if (warning) warning.style.display = 'none';
+        player.src({ src: buildHlsUrl(media), type: 'application/x-mpegURL' });
+        updateStitchedProgress();
+        updateCurrentClipWatermark();
+        return;
+      }
+
+      const startSeconds = (stitchedPlayback && compatibilityMode && compatibilityTransport === 'transcode') ? stitchedSeekOffset : 0;
       player.src({ src: buildTranscodeUrl(media, startSeconds), type: 'video/mp4' });
       syncCompatibilityDurationUi();
       return;
