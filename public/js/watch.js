@@ -158,10 +158,15 @@
 
   function buildHlsUrl(media) {
     const url = new URL(`/stream/${media.id}/hls/index.m3u8`, location.origin);
+<<<<<<< HEAD
+=======
+    // Keep parity with transcode URL cache-busting behavior.
+>>>>>>> f1de24dc6c5bfde6c56ce455907ed0a427cb69e6
     url.searchParams.set('_ts', String(Date.now()));
     return url.pathname + url.search;
   }
 
+<<<<<<< HEAD
   function isSafariFamily() {
     const ua = navigator.userAgent || '';
     const hasSafari = /Safari\//.test(ua) || /AppleWebKit\//.test(ua);
@@ -171,6 +176,18 @@
 
   function shouldUseHlsCompatibility(media) {
     return !!media?.is_virtual && isSafariFamily();
+=======
+  function isLikelyIOS() {
+    const ua = navigator.userAgent || '';
+    const iOS = /iPad|iPhone|iPod/.test(ua);
+    const iPadOS = /Macintosh/.test(ua) && navigator.maxTouchPoints > 1;
+    return iOS || iPadOS;
+  }
+
+  function shouldUseHlsCompatibility(media) {
+    // iOS Safari is more reliable with HLS than live MP4 transcoding for stitched videos.
+    return !!media?.is_virtual && isLikelyIOS();
+>>>>>>> f1de24dc6c5bfde6c56ce455907ed0a427cb69e6
   }
 
   function seekStitchedPlayback(targetSeconds) {

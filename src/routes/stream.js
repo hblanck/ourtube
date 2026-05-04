@@ -119,6 +119,10 @@ function parseStartSeconds(value) {
 
 function getCompatibilityTranscodeOptions() {
   return [
+<<<<<<< HEAD
+=======
+    // Ensure broad browser/iOS support and prevent x264 failures on odd dimensions.
+>>>>>>> f1de24dc6c5bfde6c56ce455907ed0a427cb69e6
     '-vf scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p',
     '-profile:v baseline',
     '-level 3.1',
@@ -312,6 +316,10 @@ function getExistingVirtualHlsJob(mediaId) {
   return activeHlsJobs.get(mediaId) || null;
 }
 
+<<<<<<< HEAD
+=======
+// GET /stream/:id/hls/index.m3u8 - iOS/Safari-friendly compatibility stream for virtual videos
+>>>>>>> f1de24dc6c5bfde6c56ce455907ed0a427cb69e6
 router.get('/:id/hls/index.m3u8', async (req, res) => {
   if (!isVirtualMediaId(req.params.id)) {
     return res.status(400).json({ error: 'HLS compatibility is available for virtual videos only' });
@@ -331,6 +339,10 @@ router.get('/:id/hls/index.m3u8', async (req, res) => {
   fs.createReadStream(job.playlistPath).pipe(res);
 });
 
+<<<<<<< HEAD
+=======
+// GET /stream/:id/hls/:segment - HLS segment files for virtual compatibility stream
+>>>>>>> f1de24dc6c5bfde6c56ce455907ed0a427cb69e6
 router.get('/:id/hls/:segment', async (req, res) => {
   if (!isVirtualMediaId(req.params.id)) {
     return res.status(400).json({ error: 'HLS compatibility is available for virtual videos only' });
