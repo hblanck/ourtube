@@ -12,7 +12,7 @@
   <header class="site-header">
     <div class="header-inner">
       <a href="/" class="logo">📺 OurTube</a>
-      <span style="flex:1"></span>
+      <span class="header-spacer"></span>
       <nav class="header-nav">
         <a href="/" class="nav-link">🎬 Videos</a>
         <a href="/photos.html" class="nav-link">📷 Photos</a>
@@ -31,7 +31,7 @@
     </nav>
 
     <div class="admin-content">
-      <div id="admin-auth-notice" style="display:none;margin-bottom:16px;padding:12px;border-radius:8px;background:#fff4e5;color:#8a5a00;border:1px solid #f3d8a6"></div>
+      <div id="admin-auth-notice" class="admin-auth-notice"></div>
 
       <!-- Dashboard -->
       <section class="admin-section active" id="tab-dashboard">
@@ -45,21 +45,21 @@
           <div class="stat-card"><div class="stat-value" id="stat-faces">–</div><div class="stat-label">Faces Detected</div></div>
         </div>
 
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+        <div class="admin-toolbar-row">
           <span id="scan-status-badge" class="scan-status idle"><span class="scan-dot"></span> Idle</span>
           <button class="btn btn-primary" onclick="triggerFullScan()">▶ Scan All Locations</button>
-          <span id="scan-info" style="font-size:12px;color:#888"></span>
+          <span id="scan-info" class="admin-meta-text"></span>
         </div>
 
-        <div style="margin-bottom:16px;">
-          <div style="font-size:12px;font-weight:600;color:#666;margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em">Scan Output</div>
-          <pre id="scan-output" style="background:#0f172a;color:#c7d2fe;border-radius:8px;padding:12px;max-height:260px;overflow:auto;font-size:12px;line-height:1.4;white-space:pre-wrap;word-break:break-word">No scan output yet.</pre>
+        <div class="admin-block-mb-16">
+          <div class="admin-small-caps-label">Scan Output</div>
+          <pre id="scan-output" class="admin-scan-output">No scan output yet.</pre>
         </div>
 
-        <div style="margin-bottom:8px;">
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
-            <div style="font-size:12px;font-weight:600;color:#666;text-transform:uppercase;letter-spacing:.04em">Active Sessions</div>
-            <span id="sessions-count" style="font-size:12px;color:#aaa"></span>
+        <div class="admin-block-mb-8">
+          <div class="admin-toolbar-row-tight">
+            <div class="admin-small-caps-label admin-no-margin">Active Sessions</div>
+            <span id="sessions-count" class="admin-meta-subtle"></span>
           </div>
           <div id="sessions-table-wrap">
             <table class="data-table" id="sessions-table">
@@ -72,7 +72,7 @@
                 <th>Data Sent</th>
               </tr></thead>
               <tbody id="sessions-tbody">
-                <tr><td colspan="6" style="color:#aaa;text-align:center">No active sessions</td></tr>
+                <tr><td colspan="6" class="table-empty-cell">No active sessions</td></tr>
               </tbody>
             </table>
           </div>
@@ -82,7 +82,7 @@
       <!-- Source Locations -->
       <section class="admin-section" id="tab-locations">
         <h2>Source Locations</h2>
-        <div style="margin-bottom:16px">
+        <div class="admin-block-mb-16">
           <button class="btn btn-primary" onclick="openAddLocation()">+ Add Location</button>
         </div>
         <table class="data-table" id="locations-table">
@@ -99,26 +99,26 @@
       <!-- Media Library -->
       <section class="admin-section" id="tab-library">
         <h2>Media Library</h2>
-        <div style="display:flex;gap:10px;margin-bottom:16px;">
-          <input type="search" id="library-search" class="form-input" placeholder="Search…" style="max-width:300px" />
-          <select id="library-type" class="form-select" style="max-width:140px">
+        <div class="admin-filters-row">
+          <input type="search" id="library-search" class="form-input form-input-max-300" placeholder="Search…" />
+          <select id="library-type" class="form-select form-select-max-140">
             <option value="">All Types</option>
             <option value="video">Videos</option>
             <option value="photo">Photos</option>
           </select>
-          <select id="library-source-location" class="form-select" style="max-width:240px">
+          <select id="library-source-location" class="form-select form-select-max-240">
             <option value="">All Source Locations</option>
           </select>
         </div>
-        <div id="library-visibility-filters" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
-          <span style="font-size:12px;color:#666">Visibility:</span>
+        <div id="library-visibility-filters" class="admin-actions-row admin-actions-row-mb-10">
+          <span class="admin-small-label">Visibility:</span>
           <button type="button" class="btn btn-small library-vis-chip active" data-visibility="" onclick="setLibraryVisibilityFilter('')">All</button>
           <button type="button" class="btn btn-small library-vis-chip" data-visibility="admin" onclick="setLibraryVisibilityFilter('admin')">Admin only</button>
           <button type="button" class="btn btn-small library-vis-chip" data-visibility="none" onclick="setLibraryVisibilityFilter('none')">None</button>
         </div>
-        <div id="library-bulk-actions" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
-          <span id="library-selected-count" style="font-size:12px;color:#666">0 selected</span>
-          <select id="library-bulk-visibility" class="form-select" style="max-width:170px">
+        <div id="library-bulk-actions" class="admin-actions-row admin-actions-row-mb-12">
+          <span id="library-selected-count" class="admin-small-label">0 selected</span>
+          <select id="library-bulk-visibility" class="form-select form-select-max-170">
             <option value="all">All</option>
             <option value="admin">Admin only</option>
             <option value="none">None</option>
@@ -136,9 +136,9 @@
           </thead>
           <tbody id="library-tbody"></tbody>
         </table>
-        <div id="library-pagination" style="margin-top:12px;display:flex;gap:8px;align-items:center;font-size:13px"></div>
+        <div id="library-pagination" class="pagination-row"></div>
 
-        <h3 style="margin-top:28px;margin-bottom:12px">Skipped Files</h3>
+        <h3 class="admin-section-subtitle">Skipped Files</h3>
         <table class="data-table" id="skipped-table">
           <thead>
             <tr>
@@ -147,13 +147,13 @@
           </thead>
           <tbody id="skipped-tbody"></tbody>
         </table>
-        <div id="skipped-pagination" style="margin-top:12px;display:flex;gap:8px;align-items:center;font-size:13px"></div>
+        <div id="skipped-pagination" class="pagination-row"></div>
       </section>
 
       <!-- Settings -->
       <section class="admin-section" id="tab-settings">
         <h2>Settings</h2>
-        <form id="settings-form" style="max-width:480px">
+        <form id="settings-form" class="settings-form">
           <div class="form-group">
             <label class="form-label">Face Detection</label>
             <select name="face_detection_enabled" class="form-select">
@@ -176,16 +176,23 @@
               <option value="true">Yes</option>
             </select>
           </div>
+          <div class="form-group">
+            <label class="form-label">Show Photos in UI</label>
+            <select name="photos_enabled" class="form-select">
+              <option value="true">Enabled</option>
+              <option value="false">Hidden</option>
+            </select>
+          </div>
           <button type="submit" class="btn btn-primary">Save Settings</button>
         </form>
-        <p id="settings-msg" style="margin-top:12px;font-size:13px;color:green;display:none">Settings saved!</p>
+        <p id="settings-msg" class="settings-msg">Settings saved!</p>
 
-        <h3 style="margin-top:28px;margin-bottom:12px">Admin Keys</h3>
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
-          <input type="text" id="new-admin-key-name" class="form-input" placeholder="Key name (e.g. Phone, Laptop)" style="max-width:280px" />
+        <h3 class="admin-section-subtitle">Admin Keys</h3>
+        <div class="admin-actions-row admin-actions-row-mb-10">
+          <input type="text" id="new-admin-key-name" class="form-input form-input-max-280" placeholder="Key name (e.g. Phone, Laptop)" />
           <button type="button" class="btn btn-primary" onclick="createAdminKey()">Create Key</button>
         </div>
-        <div id="new-admin-key-output" style="display:none;margin-bottom:12px;padding:10px;border:1px solid #e8d9a3;background:#fff8dc;border-radius:8px;font-size:13px"></div>
+        <div id="new-admin-key-output" class="admin-key-output"></div>
         <table class="data-table" id="admin-keys-table">
           <thead>
             <tr>
@@ -193,29 +200,29 @@
             </tr>
           </thead>
           <tbody id="admin-keys-tbody">
-            <tr><td colspan="6" style="color:#aaa;text-align:center">Loading…</td></tr>
+            <tr><td colspan="6" class="table-empty-cell">Loading…</td></tr>
           </tbody>
         </table>
 
-        <h3 style="margin-top:28px;margin-bottom:8px">Recent Admin Activity</h3>
-        <div id="audit-log-filters" style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-bottom:12px">
+        <h3 class="admin-section-subtitle admin-section-subtitle-tight">Recent Admin Activity</h3>
+        <div id="audit-log-filters" class="audit-filters-row">
           <div>
-            <label style="display:block;font-size:12px;color:#aaa;margin-bottom:3px">Action</label>
-            <select id="audit-filter-action" class="form-input" style="min-width:210px">
+            <label class="audit-filter-label">Action</label>
+            <select id="audit-filter-action" class="form-input audit-filter-action">
               <option value="">All actions</option>
               <option value="media.bulk_visibility">media.bulk_visibility</option>
               <option value="location.bulk_media_visibility">location.bulk_media_visibility</option>
             </select>
           </div>
           <div>
-            <label style="display:block;font-size:12px;color:#aaa;margin-bottom:3px">From</label>
-            <input type="date" id="audit-filter-from" class="form-input" style="min-width:140px">
+            <label class="audit-filter-label">From</label>
+            <input type="date" id="audit-filter-from" class="form-input audit-filter-date">
           </div>
           <div>
-            <label style="display:block;font-size:12px;color:#aaa;margin-bottom:3px">To</label>
-            <input type="date" id="audit-filter-to" class="form-input" style="min-width:140px">
+            <label class="audit-filter-label">To</label>
+            <input type="date" id="audit-filter-to" class="form-input audit-filter-date">
           </div>
-          <div style="display:flex;gap:6px;padding-bottom:1px">
+          <div class="audit-filter-actions">
             <button class="btn btn-primary btn-small" onclick="applyAuditFilters()">Apply</button>
             <button class="btn btn-secondary btn-small" onclick="clearAuditFilters()">Clear</button>
             <button class="btn btn-secondary btn-small" onclick="exportAuditLogCsv()" title="Download filtered results as CSV">⬇ CSV</button>
@@ -228,10 +235,10 @@
             </tr>
           </thead>
           <tbody id="audit-log-tbody">
-            <tr><td colspan="4" style="color:#aaa;text-align:center">Loading…</td></tr>
+            <tr><td colspan="4" class="table-empty-cell">Loading…</td></tr>
           </tbody>
         </table>
-        <div id="audit-log-pagination" style="margin-top:12px;display:flex;gap:8px;align-items:center;font-size:13px"></div>
+        <div id="audit-log-pagination" class="pagination-row"></div>
       </section>
     </div>
   </div>
@@ -246,29 +253,29 @@
       <form id="location-form">
         <input type="hidden" name="id" />
         <div class="form-group">
-          <label class="form-label">Name <span style="color:red">*</span></label>
+          <label class="form-label">Name <span class="required-indicator">*</span></label>
           <input type="text" name="name" class="form-input" placeholder="e.g. Family Videos" required />
         </div>
         <div class="form-group">
-          <label class="form-label">Collection Entries <span style="color:red">*</span></label>
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-            <input type="text" id="location-entry-path" class="form-input" style="flex:1;min-width:280px" placeholder="/media/nas/videos or /media/nas/videos/file.mp4" />
-            <select id="location-entry-type" class="form-select" style="max-width:140px">
+          <label class="form-label">Collection Entries <span class="required-indicator">*</span></label>
+          <div class="admin-actions-row">
+            <input type="text" id="location-entry-path" class="form-input form-flex-1 form-minw-280" placeholder="/media/nas/videos or /media/nas/videos/file.mp4" />
+            <select id="location-entry-type" class="form-select form-select-max-140">
               <option value="directory">Folder</option>
               <option value="file">File</option>
             </select>
             <button type="button" class="btn btn-secondary btn-small" onclick="addEntryFromInput()">Add</button>
           </div>
-          <div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap">
+          <div class="admin-actions-row admin-actions-row-mt-8">
             <button type="button" class="btn btn-secondary btn-small" onclick="openPathBrowser(null, 'directory')">Browse Folder</button>
             <button type="button" class="btn btn-secondary btn-small" onclick="openPathBrowser(null, 'file')">Browse File</button>
-            <span style="font-size:12px;color:#888">Mix folders and individual files under <code>/media</code></span>
+            <span class="admin-meta-text">Mix folders and individual files under <code>/media</code></span>
           </div>
-          <div id="location-entries-list" style="margin-top:8px"></div>
-          <div id="path-browser" class="path-browser" style="display:none">
+          <div id="location-entries-list" class="admin-list-gap-top"></div>
+          <div id="path-browser" class="path-browser hidden">
             <div class="path-browser-header">
               <strong id="path-browser-current"></strong>
-              <div style="display:flex;gap:8px">
+              <div class="admin-actions-row">
                 <button type="button" class="btn btn-small" id="path-browser-use-current" onclick="selectCurrentBrowserPath()">Use This Folder</button>
                 <button type="button" class="btn btn-small" onclick="closePathBrowser()">Close</button>
               </div>
@@ -299,17 +306,17 @@
           </div>
         </div>
         <div class="form-group">
-          <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+          <label class="form-label form-label-check-inline">
             <input type="checkbox" name="enabled" value="1" checked />
             Enabled
           </label>
         </div>
         <div class="form-group">
-          <label class="form-label" style="display:flex;align-items:flex-start;gap:8px;cursor:pointer">
+          <label class="form-label form-label-check-top">
             <input type="checkbox" name="stitch_directories" value="1" />
             <span>
               Stitch folder clips into one virtual video
-              <div style="font-size:12px;color:#666;font-weight:400;margin-top:4px">When enabled, videos inside each selected folder or first-level child folder are shown as one longer watchable item.</div>
+              <div class="admin-help-text">When enabled, videos inside each selected folder or first-level child folder are shown as one longer watchable item.</div>
             </span>
           </label>
         </div>
@@ -363,8 +370,8 @@
 
         <div class="form-group">
           <label class="form-label">People / Faces</label>
-          <div id="face-list-edit" style="margin-bottom:8px"></div>
-          <div style="display:flex;gap:8px">
+          <div id="face-list-edit" class="admin-list-gap-bottom"></div>
+          <div class="admin-actions-row">
             <input type="text" id="face-name-input" class="form-input" placeholder="Person name" />
             <button type="button" class="btn btn-secondary" onclick="addFace()">Add</button>
           </div>
@@ -381,7 +388,7 @@
 
   <!-- Source Visibility Modal -->
   <div class="modal-overlay" id="source-visibility-modal">
-    <div class="modal" style="max-width:460px">
+    <div class="modal modal-narrow">
       <div class="modal-header">
         <div class="modal-title">Apply Source Visibility</div>
         <button class="modal-close" onclick="closeModal('source-visibility-modal')">✕</button>
@@ -390,7 +397,7 @@
         <input type="hidden" name="source_id" />
         <div class="form-group">
           <label class="form-label">Source</label>
-          <div id="source-visibility-name" style="font-weight:600;color:#333"></div>
+          <div id="source-visibility-name" class="source-visibility-name"></div>
         </div>
         <div class="form-group">
           <label class="form-label">Visibility for all indexed media in this source</label>
@@ -401,7 +408,7 @@
           </select>
         </div>
         <div class="form-group">
-          <label class="form-label" style="display:flex;align-items:flex-start;gap:8px;cursor:pointer">
+          <label class="form-label form-label-check-top">
             <input type="checkbox" name="update_source_visibility" value="1" checked />
             <span>Also update the collection visibility to match</span>
           </label>
@@ -588,7 +595,7 @@
       const countEl = document.getElementById('sessions-count');
       countEl.textContent = sessions.length ? `(${sessions.length} active)` : '';
       if (!sessions.length) {
-        tbody.innerHTML = '<tr><td colspan="6" style="color:#aaa;text-align:center">No active sessions</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="table-empty-cell">No active sessions</td></tr>';
       } else {
         tbody.innerHTML = sessions.map(s => {
           const elapsed = Math.floor((Date.now() - s.startedAt) / 1000);
@@ -596,15 +603,15 @@
           const ua = s.userAgent || '—';
           const uaShort = ua.length > 60 ? ua.slice(0, 60) + '…' : ua;
           const typeBadge = s.type === 'transcode'
-            ? '<span style="background:#7c3aed;color:#fff;border-radius:4px;padding:1px 6px;font-size:11px">Transcode</span>'
-            : '<span style="background:#0d9488;color:#fff;border-radius:4px;padding:1px 6px;font-size:11px">Direct</span>';
+            ? '<span class="status-badge status-badge-transcode">Transcode</span>'
+            : '<span class="status-badge status-badge-direct">Direct</span>';
           return `<tr>
-            <td><code style="font-size:12px">${escHtml(s.ip)}</code></td>
-            <td title="${escHtml(ua)}" style="font-size:12px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(uaShort)}</td>
-            <td style="font-size:12px"><a href="/watch.html?id=${encodeURIComponent(s.mediaId)}" target="_blank">${escHtml(s.title)}</a></td>
+            <td><code class="code-xs">${escHtml(s.ip)}</code></td>
+            <td title="${escHtml(ua)}" class="cell-xs cell-ellipsis-220">${escHtml(uaShort)}</td>
+            <td class="cell-xs"><a href="/watch.html?id=${encodeURIComponent(s.mediaId)}" target="_blank">${escHtml(s.title)}</a></td>
             <td>${typeBadge}</td>
-            <td style="font-size:12px">${elapsedStr} ago</td>
-            <td style="font-size:12px">${fmtSize(s.bytesSent)}</td>
+            <td class="cell-xs">${elapsedStr} ago</td>
+            <td class="cell-xs">${fmtSize(s.bytesSent)}</td>
           </tr>`;
         }).join('');
       }
@@ -632,12 +639,12 @@
 
     el.innerHTML = locationEntries.map((entry, idx) => {
       const badge = entry.type === 'file'
-        ? '<span style="background:#2563eb;color:#fff;border-radius:4px;padding:1px 6px;font-size:11px">File</span>'
-        : '<span style="background:#16a34a;color:#fff;border-radius:4px;padding:1px 6px;font-size:11px">Folder</span>';
-      return `<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid #eee;border-radius:6px;margin-bottom:6px;background:#fafafa">
+        ? '<span class="status-badge status-badge-file">File</span>'
+        : '<span class="status-badge status-badge-folder">Folder</span>';
+      return `<div class="entry-chip-row">
         ${badge}
-        <code style="font-size:12px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(entry.path)}</code>
-        <button type="button" class="btn btn-small" style="color:#b91c1c" onclick="removeLocationEntry(${idx})">Remove</button>
+        <code class="code-xs code-flex-ellipsis">${escHtml(entry.path)}</code>
+        <button type="button" class="btn btn-small btn-danger-text" onclick="removeLocationEntry(${idx})">Remove</button>
       </div>`;
     }).join('');
   }
@@ -676,29 +683,29 @@
 
   async function loadLocations() {
     const tbody = document.getElementById('locations-tbody');
-    tbody.innerHTML = '<tr><td colspan="8" style="color:#aaa;text-align:center">Loading…</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="table-empty-cell">Loading…</td></tr>';
     const res = await fetch('/api/admin/locations');
     const locs = await res.json();
     Object.keys(locationNameById).forEach(key => { delete locationNameById[key]; });
     locs.forEach(loc => { locationNameById[String(loc.id)] = loc.name; });
     if (!locs.length) {
-      tbody.innerHTML = '<tr><td colspan="8" style="color:#aaa;text-align:center">No source locations. Add one above.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" class="table-empty-cell">No source locations. Add one above.</td></tr>';
       return;
     }
     tbody.innerHTML = locs.map(l => `
       <tr>
         <td><strong>${escHtml(l.name)}</strong></td>
-        <td><code style="font-size:12px">${escHtml((l.entries && l.entries[0] && l.entries[0].path) || l.path)}${(l.entries && l.entries.length > 1) ? ` (+${l.entries.length - 1} more)` : ''}</code></td>
-        <td>${escHtml(l.type)}${l.stitch_directories ? '<div style="font-size:11px;color:#2563eb">stitched folders</div>' : ''}</td>
+        <td><code class="code-xs">${escHtml((l.entries && l.entries[0] && l.entries[0].path) || l.path)}${(l.entries && l.entries.length > 1) ? ` (+${l.entries.length - 1} more)` : ''}</code></td>
+        <td>${escHtml(l.type)}${l.stitch_directories ? '<div class="helper-note helper-note-info">stitched folders</div>' : ''}</td>
         <td>${fmtVisibility(l.visibility)}</td>
         <td>${l.enabled ? '✅' : '❌'}</td>
         <td>${l.scan_interval}s</td>
-        <td style="font-size:12px">${l.last_scanned ? fmtDate(l.last_scanned) : 'Never'}</td>
+        <td class="cell-xs">${l.last_scanned ? fmtDate(l.last_scanned) : 'Never'}</td>
         <td>
           <button class="btn btn-small" onclick="openEditLocation(${l.id})">Edit</button>
           <button class="btn btn-small" onclick="scanLocation(${l.id})">Scan</button>
           <button class="btn btn-small" onclick="openSourceVisibilityModal(${l.id})">Apply Visibility</button>
-          <button class="btn btn-small" style="color:red" onclick="deleteLocation(${l.id})">Delete</button>
+          <button class="btn btn-small btn-danger-text" onclick="deleteLocation(${l.id})">Delete</button>
         </td>
       </tr>`).join('');
   }
@@ -946,7 +953,7 @@
 
   async function loadLibrary() {
     const tbody = document.getElementById('library-tbody');
-    tbody.innerHTML = '<tr><td colspan="10" style="color:#aaa;text-align:center">Loading…</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" class="table-empty-cell">Loading…</td></tr>';
 
     const q = document.getElementById('library-search').value;
     const type = document.getElementById('library-type').value;
@@ -963,7 +970,7 @@
     libraryCurrentIds = (data.items || []).map(item => String(item.id));
 
     if (!data.items.length) {
-      tbody.innerHTML = '<tr><td colspan="10" style="color:#aaa;text-align:center">No items found.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="10" class="table-empty-cell">No items found.</td></tr>';
       document.getElementById('library-pagination').innerHTML = '';
       updateLibrarySelectionUi();
       await loadSkippedFiles();
@@ -973,19 +980,19 @@
     tbody.innerHTML = data.items.map(m => `
       <tr>
         <td><input type="checkbox" class="library-select-row" data-id="${escHtml(m.id)}" ${selectedLibraryIds.has(String(m.id)) ? 'checked' : ''} /></td>
-        <td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+        <td class="cell-ellipsis-240">
           <strong>${escHtml(m.friendly_name || m.file_name)}</strong>
         </td>
         <td>${m.type === 'video' ? '🎬' : '📷'} ${m.type}</td>
         <td>${m.year || '—'}</td>
         <td>${m.location ? escHtml(m.location) : '—'}</td>
-        <td style="max-width:280px">
+        <td class="cell-max-280">
           ${m.source_location_name ? `<div><strong>${escHtml(m.source_location_name)}</strong></div>` : '<div>—</div>'}
           ${(m.source_entry_path || m.source_location_path)
-            ? `<div style="font-size:12px;color:#777;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><code>${escHtml(m.source_entry_path || m.source_location_path)}</code></div>`
+            ? `<div class="cell-xs cell-secondary cell-ellipsis"><code>${escHtml(m.source_entry_path || m.source_location_path)}</code></div>`
             : ''}
         </td>
-        <td style="font-size:12px">${fmtVisibility(m.visibility)} / ${fmtVisibility(m.source_visibility)}</td>
+        <td class="cell-xs">${fmtVisibility(m.visibility)} / ${fmtVisibility(m.source_visibility)}</td>
         <td>${fmtDur(m.duration)}</td>
         <td>${fmtSize(m.size)}</td>
         <td>
@@ -1089,7 +1096,7 @@
     const tbody = document.getElementById('skipped-tbody');
     if (!tbody) return;
 
-    tbody.innerHTML = '<tr><td colspan="5" style="color:#aaa;text-align:center">Loading…</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" class="table-empty-cell">Loading…</td></tr>';
 
     const q = document.getElementById('library-search').value;
     const params = new URLSearchParams({ page: skippedPage, limit: skippedLimit });
@@ -1100,14 +1107,14 @@
     skippedTotal = data.total;
 
     if (!data.items.length) {
-      tbody.innerHTML = '<tr><td colspan="5" style="color:#aaa;text-align:center">No skipped files.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="5" class="table-empty-cell">No skipped files.</td></tr>';
       document.getElementById('skipped-pagination').innerHTML = '';
       return;
     }
 
     tbody.innerHTML = data.items.map(item => `
       <tr>
-        <td style="max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><code>${escHtml(item.file_path)}</code></td>
+        <td class="cell-ellipsis-320"><code>${escHtml(item.file_path)}</code></td>
         <td>${escHtml(item.reason)}</td>
         <td>${item.source_location_name ? escHtml(item.source_location_name) : '—'}</td>
         <td>${fmtDate(item.last_seen_at)}</td>
@@ -1187,11 +1194,11 @@
   function renderFaceList() {
     const el = document.getElementById('face-list-edit');
     el.innerHTML = currentFaces.map(f => `
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+      <div class="admin-actions-row admin-actions-row-mb-6">
         <span class="face-chip">${escHtml(f.person_name || '(unnamed)')}</span>
-        <button type="button" class="btn btn-small" style="color:red;padding:2px 8px"
+        <button type="button" class="btn btn-small btn-danger-text btn-tight"
           onclick="removeFace(${f.id})">✕</button>
-      </div>`).join('') || '<p style="font-size:12px;color:#aaa">No people tagged yet.</p>';
+      </div>`).join('') || '<p class="table-empty-text">No people tagged yet.</p>';
   }
 
   async function addFace() {
@@ -1284,6 +1291,7 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     });
+    await window.OurTubeAdminMode?.refresh?.();
     const msg = document.getElementById('settings-msg');
     msg.style.display = 'block';
     setTimeout(() => { msg.style.display = 'none'; }, 3000);
@@ -1292,30 +1300,30 @@
   async function loadAdminKeys() {
     const tbody = document.getElementById('admin-keys-tbody');
     if (!tbody) return;
-    tbody.innerHTML = '<tr><td colspan="6" style="color:#aaa;text-align:center">Loading…</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="table-empty-cell">Loading…</td></tr>';
 
     const res = await adminFetch('/api/admin/auth/keys');
     if (!res.ok) {
-      tbody.innerHTML = '<tr><td colspan="6" style="color:#b91c1c;text-align:center">Admin auth required.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6" class="table-error-cell">Admin auth required.</td></tr>';
       return;
     }
 
     const keys = await res.json();
     if (!keys.length) {
-      tbody.innerHTML = '<tr><td colspan="6" style="color:#aaa;text-align:center">No keys found.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6" class="table-empty-cell">No keys found.</td></tr>';
       return;
     }
 
     tbody.innerHTML = keys.map(k => `
       <tr>
-        <td><input type="text" id="admin-key-name-${k.id}" class="form-input" style="max-width:220px" value="${escHtml(k.name)}" /></td>
+        <td><input type="text" id="admin-key-name-${k.id}" class="form-input form-input-max-220" value="${escHtml(k.name)}" /></td>
         <td><code>${escHtml(k.key_prefix || '—')}</code></td>
         <td>${fmtDate(k.created_at)}</td>
         <td>${fmtDate(k.last_used_at)}</td>
-        <td>${k.revoked_at ? '<span style="color:#b91c1c">Revoked</span>' : '<span style="color:#166534">Active</span>'}</td>
+        <td>${k.revoked_at ? '<span class="status-text-revoked">Revoked</span>' : '<span class="status-text-active">Active</span>'}</td>
         <td>
           <button class="btn btn-small" onclick="renameAdminKey(${k.id})">Rename</button>
-          ${k.revoked_at ? '' : `<button class="btn btn-small" style="color:#b91c1c" onclick="revokeAdminKey(${k.id})">Revoke</button>`}
+          ${k.revoked_at ? '' : `<button class="btn btn-small btn-danger-text" onclick="revokeAdminKey(${k.id})">Revoke</button>`}
         </td>
       </tr>
     `).join('');
@@ -1341,8 +1349,8 @@
     output.style.display = 'block';
     output.innerHTML = `
       <strong>New key created:</strong><br />
-      <code style="font-size:14px">${escHtml(data.key)}</code>
-      <div style="margin-top:6px;color:#8a5a00">Copy this now. It will not be shown again.</div>`;
+      <code class="code-md">${escHtml(data.key)}</code>
+      <div class="warning-note">Copy this now. It will not be shown again.</div>`;
     if (nameInput) nameInput.value = '';
     loadAdminKeys();
   }
@@ -1445,28 +1453,28 @@
     const pag = document.getElementById('audit-log-pagination');
     if (!tbody || !pag) return;
 
-    tbody.innerHTML = '<tr><td colspan="4" style="color:#aaa;text-align:center">Loading…</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="4" class="table-empty-cell">Loading…</td></tr>';
 
     const res = await adminFetch(`/api/admin/audit-log?${buildAuditLogParams()}`);
     if (!res.ok) {
-      tbody.innerHTML = '<tr><td colspan="4" style="color:#b91c1c;text-align:center">Failed to load activity.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="4" class="table-error-cell">Failed to load activity.</td></tr>';
       pag.innerHTML = '';
       return;
     }
 
     const data = await res.json();
     if (!data.items || !data.items.length) {
-      tbody.innerHTML = '<tr><td colspan="4" style="color:#aaa;text-align:center">No activity yet.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="4" class="table-empty-cell">No activity yet.</td></tr>';
       pag.innerHTML = '';
       return;
     }
 
     tbody.innerHTML = data.items.map(entry => `
       <tr>
-        <td style="font-size:12px;white-space:nowrap">${fmtDate(entry.created_at)}</td>
+        <td class="cell-xs cell-nowrap">${fmtDate(entry.created_at)}</td>
         <td><code>${escHtml(entry.action)}</code></td>
-        <td style="font-size:12px">${entry.actor_key_name ? escHtml(entry.actor_key_name) : (entry.actor_key_id ? `Key #${entry.actor_key_id}` : '—')}</td>
-        <td style="font-size:12px;max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(JSON.stringify(entry.metadata || {}))}">${escHtml(fmtAuditMetadata(entry))}</td>
+        <td class="cell-xs">${entry.actor_key_name ? escHtml(entry.actor_key_name) : (entry.actor_key_id ? `Key #${entry.actor_key_id}` : '—')}</td>
+        <td class="cell-xs cell-ellipsis-420" title="${escHtml(JSON.stringify(entry.metadata || {}))}">${escHtml(fmtAuditMetadata(entry))}</td>
       </tr>
     `).join('');
 

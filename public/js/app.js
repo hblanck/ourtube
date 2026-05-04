@@ -8,6 +8,7 @@
   let loading = false;
   let hasMore = true;
   let adminModeEnabled = false;
+  let uiSettings = { photosEnabled: true };
   let currentFilters = { type: FORCE_TYPE || '', year: '', location: '', source_location_id: '', sort: 'indexed_at' };
   const SIDEBAR_STATE_KEY = 'ourtube.sidebar.collapsed';
   let yearFilterLoadVersion = 0;
@@ -70,26 +71,56 @@
     const tags = Array.isArray(item.tags) ? item.tags.filter(Boolean).map(String) : [];
 
     lines.push(displayName);
-    lines.push('');
-    lines.push(`Description: ${description || 'No description available.'}`);
-    lines.push('');
-    lines.push('Metadata:');
-    lines.push(`- Type: ${isVideo ? 'Video' : 'Photo'}`);
-    if (item.year) lines.push(`- Year: ${item.year}`);
-    if (item.location) lines.push(`- Location: ${item.location}`);
-    if (item.width && item.height) lines.push(`- Resolution: ${item.width}x${item.height}`);
-    if (item.duration && isVideo) lines.push(`- Duration: ${fmtDur(item.duration)}`);
-    if (item.size) lines.push(`- Size: ${fmtSize(item.size)}`);
-    if (collectionName) lines.push(`- Collection: ${collectionName}`);
-    if (tags.length) lines.push(`- Tags: ${tags.join(', ')}`);
 
     if (item.is_virtual) {
-      lines.push('');
-      lines.push(`Stitched Video: ${item.segment_count || 0} smaller videos stitched together.`);
-      lines.push('Playback sequence may be out of order.');
+      lines.push(`Stitched: ${item.segment_count || 0} clips combined`);
+      lines.push('Sequence may vary during playback.');
     }
 
+    if (description) lines.push(`About: ${description}`);
+
+    const details = [];
+    details.push(isVideo ? 'Video' : 'Photo');
+    if (item.year) details.push(String(item.year));
+    if (item.location) details.push(String(item.location));
+    if (item.width && item.height) details.push(`${item.width}x${item.height}`);
+    if (item.duration && isVideo) details.push(fmtDur(item.duration));
+    if (item.size) details.push(fmtSize(item.size));
+    if (collectionName) details.push(`Collection: ${collectionName}`);
+    if (tags.length) details.push(`Tags: ${tags.join(', ')}`);
+    if (details.length) lines.push(`Details: ${details.join(' · ')}`);
+
     return lines.join('\n');
+  }
+
+  async function loadUiSettings() {
+    try {
+      const res = await fetch('/api/ui-settings');
+      if (!res.ok) return;
+      const data = await res.json();
+      uiSettings = { photosEnabled: data.photos_enabled !== false };
+    } catch {
+      uiSettings = { photosEnabled: true };
+    }
+  }
+
+  function applyUiSettings() {
+    if (uiSettings.photosEnabled) return true;
+
+    if (FORCE_TYPE === 'photo') {
+      window.location.replace('/');
+      return false;
+    }
+
+    if (currentFilters.type === 'photo') currentFilters.type = '';
+
+    document.querySelectorAll('input[name="type"][value="photo"]').forEach(input => {
+      const label = input.closest('label');
+      if (label) label.remove();
+      else input.remove();
+    });
+
+    return true;
   }
 
   function ensureMediaTooltip() {
@@ -595,7 +626,11 @@
 
       const title = document.getElementById('grid-title');
       if (title && page === 2) {
-        const typeLabel = FORCE_TYPE === 'photo' ? 'Photos' : FORCE_TYPE === 'video' ? 'Videos' : 'All Media';
+        const typeLabel = FORCE_TYPE === 'photo'
+          ? 'Photos'
+          : FORCE_TYPE === 'video'
+            ? 'Videos'
+            : (uiSettings.photosEnabled ? 'All Media' : 'All Videos');
         title.textContent = `${typeLabel} (${data.total})`;
       }
 
@@ -648,7 +683,8 @@
     try {
       const res = await fetch('/api/stats');
       const s = await res.json();
-      bar.textContent = `${s.total} items · ${s.videos} videos · ${s.photos} photos · ${fmtSize(s.totalSize)}`;
+      const photoPart = uiSettings.photosEnabled ? ` · ${s.photos} photos` : '';
+      bar.textContent = `${s.total} items · ${s.videos} videos${photoPart} · ${fmtSize(s.totalSize)}`;
     } catch { /* ignore */ }
   }
 
@@ -837,8 +873,28 @@
 
   // ── Init ──────────────────────────────────────────────────
   async function init() {
+    await loadUiSettings();
+    if (!applyUiSettings()) return;
+
     const adminStatus = window.OurTubeAdminMode?.status?.();
     adminModeEnabled = !!adminStatus?.authenticated;
+
+    window.addEventListener('ourtube-ui-settings-changed', async event => {
+      const photosEnabled = event.detail?.photosEnabled !== false;
+      if (photosEnabled === uiSettings.photosEnabled) return;
+      if (photosEnabled) {
+        window.location.reload();
+        return;
+      }
+      uiSettings.photosEnabled = photosEnabled;
+      if (!applyUiSettings()) return;
+      await Promise.all([loadYearFilter(), loadLocationFilter(), loadSourceLocationFilter()]);
+      syncFilterControls();
+      renderActiveFilters();
+      await loadStats();
+      loadFeatured();
+      loadMedia(true);
+    });
 
     window.addEventListener('ourtube-admin-mode-changed', async event => {
       const nextEnabled = !!event.detail?.authenticated;

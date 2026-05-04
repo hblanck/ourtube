@@ -140,6 +140,7 @@ function initDb() {
   insertSetting.run('thumbnail_width', '400');
   insertSetting.run('thumbnail_height', '300');
   insertSetting.run('scan_on_startup', 'false');
+  insertSetting.run('photos_enabled', 'true');
 
   return db;
 }
