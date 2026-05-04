@@ -21,9 +21,27 @@ const { isAdminAuthenticated } = require('../admin-auth');
 
 const router = express.Router();
 
+function getSettingValue(db, key, fallback = '') {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
+  return row?.value ?? fallback;
+}
+
+function isPhotosEnabled(db) {
+  return getSettingValue(db, 'photos_enabled', 'true') !== 'false';
+}
+
+// GET /api/ui-settings
+router.get('/ui-settings', (req, res) => {
+  const db = getDb();
+  res.json({
+    photos_enabled: isPhotosEnabled(db)
+  });
+});
+
 // GET /api/media
 router.get('/media', (req, res) => {
   const db = getDb();
+  const photosEnabled = isPhotosEnabled(db);
   const {
     type, page = 1, limit = 24, sort = 'indexed_at', order = 'DESC',
     year, location, search, source_location_id
@@ -37,11 +55,19 @@ router.get('/media', (req, res) => {
   const pageLimit = Math.min(100, Math.max(1, parseInt(limit, 10) || 24));
   const offset = (safePage - 1) * pageLimit;
 
+  if (!photosEnabled && type === 'photo') {
+    return res.json({ total: 0, page: safePage, limit: pageLimit, items: [] });
+  }
+
   const conditions = [];
   const aliasedConditions = [];
   const params = [];
   const includeHidden = req.query.include_hidden === '1' && isAdminAuthenticated(req);
   if (!includeHidden) aliasedConditions.push(`(${mediaVisibilityCondition('m', 'sl', req)})`);
+  if (!photosEnabled) {
+    conditions.push("type = 'video'");
+    aliasedConditions.push("m.type = 'video'");
+  }
 
   const visibilityFilter = String(req.query.visibility || '').trim().toLowerCase();
   if (includeHidden && (visibilityFilter === VISIBILITY_ADMIN_ONLY || visibilityFilter === VISIBILITY_NONE)) {
@@ -130,7 +156,9 @@ router.get('/media', (req, res) => {
 // GET /api/media/featured - must be before /api/media/:id
 router.get('/media/featured', (req, res) => {
   const db = getDb();
+  const photosEnabled = isPhotosEnabled(db);
   const visibilityWhere = mediaVisibilityCondition('m', 'sl', req);
+  const typeWhere = photosEnabled ? '' : " AND m.type = 'video'";
 
   const rows = db.prepare(
     `SELECT m.id, m.type, m.file_path, m.file_name, m.friendly_name, m.description, m.duration, m.width, m.height,
@@ -164,7 +192,7 @@ router.get('/media/featured', (req, res) => {
             m.created_at, m.modified_at, m.indexed_at
      FROM media m
       LEFT JOIN source_locations sl ON sl.id = m.source_location_id
-      WHERE ${visibilityWhere}`
+      WHERE ${visibilityWhere}${typeWhere}`
   ).all();
 
   const items = aggregateMediaRows(rows);
@@ -177,6 +205,7 @@ router.get('/media/featured', (req, res) => {
 // GET /api/media/:id
 router.get('/media/:id', (req, res) => {
   const db = getDb();
+  const photosEnabled = isPhotosEnabled(db);
   const virtualRef = parseVirtualMediaId(req.params.id);
   const includeHidden = req.query.include_hidden === '1' && isAdminAuthenticated(req);
 
@@ -232,6 +261,7 @@ router.get('/media/:id', (req, res) => {
       WHERE m.id = ?`
   ).get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Not found' });
+  if (!photosEnabled && row.type === 'photo') return res.status(404).json({ error: 'Not found' });
   if (!includeHidden && !canAccessFromRow(row, req)) return res.status(404).json({ error: 'Not found' });
 
   row.tags = parseTags(row.tags);
@@ -249,6 +279,7 @@ router.get('/media/:id', (req, res) => {
 // GET /api/search
 router.get('/search', (req, res) => {
   const db = getDb();
+  const photosEnabled = isPhotosEnabled(db);
   const { q = '', page = 1, limit = 24 } = req.query;
   if (!q.trim()) return res.json({ total: 0, items: [] });
 
@@ -257,12 +288,14 @@ router.get('/search', (req, res) => {
   const pageLimit = Math.min(100, parseInt(limit));
 
   const visibilityWhere = mediaVisibilityCondition('m', 'sl', req);
+  const typeWhere = photosEnabled ? '' : " AND m.type = 'video'";
 
   const total = db.prepare(
     `SELECT COUNT(*) as cnt
        FROM media m
        LEFT JOIN source_locations sl ON sl.id = m.source_location_id
       WHERE (${visibilityWhere})
+        ${typeWhere}
         AND (m.friendly_name LIKE ? OR m.description LIKE ? OR m.location LIKE ? OR m.tags LIKE ? OR m.file_name LIKE ?)`
   ).get(search, search, search, search, search).cnt;
 
@@ -271,6 +304,7 @@ router.get('/search', (req, res) => {
        FROM media m
        LEFT JOIN source_locations sl ON sl.id = m.source_location_id
       WHERE (${visibilityWhere})
+        ${typeWhere}
         AND (m.friendly_name LIKE ? OR m.description LIKE ? OR m.location LIKE ? OR m.tags LIKE ? OR m.file_name LIKE ?)
       ORDER BY m.indexed_at DESC LIMIT ? OFFSET ?`
   ).all(search, search, search, search, search, pageLimit, offset);
@@ -306,10 +340,15 @@ router.get('/tags', (req, res) => {
 // GET /api/years
 router.get('/years', (req, res) => {
   const db = getDb();
+  const photosEnabled = isPhotosEnabled(db);
   const type = String(req.query.type || '').trim().toLowerCase();
+  if (!photosEnabled && type === 'photo') return res.json([]);
   const visibilityWhere = mediaVisibilityCondition('m', 'sl', req);
-  const typeCondition = (type === 'video' || type === 'photo') ? ' AND m.type = ?' : '';
-  const params = typeCondition ? [type] : [];
+  const hasRequestedType = type === 'video' || type === 'photo';
+  const typeCondition = hasRequestedType
+    ? ' AND m.type = ?'
+    : (!photosEnabled ? " AND m.type = 'video'" : '');
+  const params = hasRequestedType ? [type] : [];
   const rows = db.prepare(
     `SELECT m.year, COUNT(*) as count
        FROM media m
@@ -325,10 +364,15 @@ router.get('/years', (req, res) => {
 // GET /api/locations
 router.get('/locations', (req, res) => {
   const db = getDb();
+  const photosEnabled = isPhotosEnabled(db);
   const type = String(req.query.type || '').trim().toLowerCase();
+  if (!photosEnabled && type === 'photo') return res.json([]);
   const visibilityWhere = mediaVisibilityCondition('m', 'sl', req);
-  const typeCondition = (type === 'video' || type === 'photo') ? ' AND m.type = ?' : '';
-  const params = typeCondition ? [type] : [];
+  const hasRequestedType = type === 'video' || type === 'photo';
+  const typeCondition = hasRequestedType
+    ? ' AND m.type = ?'
+    : (!photosEnabled ? " AND m.type = 'video'" : '');
+  const params = hasRequestedType ? [type] : [];
   const rows = db.prepare(
     `SELECT m.location, COUNT(*) as count
        FROM media m
@@ -344,13 +388,17 @@ router.get('/locations', (req, res) => {
 // GET /api/source-locations
 router.get('/source-locations', (req, res) => {
   const db = getDb();
+  const photosEnabled = isPhotosEnabled(db);
   const type = String(req.query.type || '').trim().toLowerCase();
+  if (!photosEnabled && type === 'photo') return res.json([]);
   const sourceVisibilityWhere = sourceVisibilityCondition('sl', req);
   const mediaVisibilityWhere = mediaVisibilityCondition('m', 'sl', req);
 
-  const typeCondition = (type === 'video' || type === 'photo') ? ' AND m.type = ?' : '';
+  const typeCondition = (type === 'video' || type === 'photo')
+    ? ' AND m.type = ?'
+    : (!photosEnabled ? " AND m.type = 'video'" : '');
   const params = [];
-  if (typeCondition) params.push(type);
+  if (type === 'video' || type === 'photo') params.push(type);
 
   const rows = db.prepare(
     `SELECT sl.id, sl.name, COUNT(m.id) as count
@@ -384,12 +432,14 @@ router.get('/faces/people', (req, res) => {
 // GET /api/stats
 router.get('/stats', (req, res) => {
   const db = getDb();
+  const photosEnabled = isPhotosEnabled(db);
   const visibilityWhere = mediaVisibilityCondition('m', 'sl', req);
+  const typeWhere = photosEnabled ? '' : " AND m.type = 'video'";
   const total = db.prepare(
     `SELECT COUNT(*) as cnt
        FROM media m
        LEFT JOIN source_locations sl ON sl.id = m.source_location_id
-      WHERE (${visibilityWhere})`
+      WHERE (${visibilityWhere})${typeWhere}`
   ).get().cnt;
   const videos = db.prepare(
     `SELECT COUNT(*) as cnt
@@ -397,23 +447,26 @@ router.get('/stats', (req, res) => {
        LEFT JOIN source_locations sl ON sl.id = m.source_location_id
       WHERE (${visibilityWhere}) AND m.type = 'video'`
   ).get().cnt;
-  const photos = db.prepare(
-    `SELECT COUNT(*) as cnt
-       FROM media m
-       LEFT JOIN source_locations sl ON sl.id = m.source_location_id
-      WHERE (${visibilityWhere}) AND m.type = 'photo'`
-  ).get().cnt;
+  const photos = photosEnabled
+    ? db.prepare(
+      `SELECT COUNT(*) as cnt
+         FROM media m
+         LEFT JOIN source_locations sl ON sl.id = m.source_location_id
+        WHERE (${visibilityWhere}) AND m.type = 'photo'`
+    ).get().cnt
+    : 0;
   const totalSize = db.prepare(
     `SELECT SUM(m.size) as s
        FROM media m
        LEFT JOIN source_locations sl ON sl.id = m.source_location_id
-      WHERE (${visibilityWhere})`
+      WHERE (${visibilityWhere})${typeWhere}`
   ).get().s || 0;
   const locations = db.prepare(
     `SELECT COUNT(DISTINCT m.location) as cnt
        FROM media m
        LEFT JOIN source_locations sl ON sl.id = m.source_location_id
       WHERE (${visibilityWhere})
+        ${typeWhere}
         AND m.location IS NOT NULL AND m.location != ''`
   ).get().cnt;
   const faces = db.prepare(
@@ -421,7 +474,7 @@ router.get('/stats', (req, res) => {
        FROM faces f
        JOIN media m ON m.id = f.media_id
        LEFT JOIN source_locations sl ON sl.id = m.source_location_id
-      WHERE (${visibilityWhere})`
+      WHERE (${visibilityWhere})${typeWhere}`
   ).get().cnt;
 
   res.json({ total, videos, photos, totalSize, locations, faces });

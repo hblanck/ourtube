@@ -9,6 +9,12 @@
     sessionTtlMinutes: null,
   };
 
+  let uiSettings = {
+    photosEnabled: true,
+  };
+
+  const THEME_STORAGE_KEY = 'ourtube.theme';
+
   let uiReady = false;
 
   function escHtml(str) {
@@ -24,10 +30,103 @@
     return status;
   }
 
+  async function fetchUiSettings() {
+    const res = await fetch('/api/ui-settings', { credentials: 'same-origin' });
+    if (!res.ok) throw new Error('Failed to load UI settings');
+    const data = await res.json();
+    uiSettings = {
+      photosEnabled: data.photos_enabled !== false
+    };
+    return uiSettings;
+  }
+
   function dispatchStatusChanged() {
     window.dispatchEvent(new CustomEvent('ourtube-admin-mode-changed', {
       detail: { ...status }
     }));
+  }
+
+  function dispatchUiSettingsChanged() {
+    window.dispatchEvent(new CustomEvent('ourtube-ui-settings-changed', {
+      detail: { ...uiSettings }
+    }));
+  }
+
+  function readStoredTheme() {
+    try {
+      return localStorage.getItem(THEME_STORAGE_KEY);
+    } catch {
+      return null;
+    }
+  }
+
+  function applyTheme(theme) {
+    const normalized = theme === 'dark' ? 'dark' : 'light';
+    document.documentElement.classList.toggle('theme-dark', normalized === 'dark');
+    return normalized;
+  }
+
+  function setStoredTheme(theme) {
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, theme);
+    } catch { /* ignore */ }
+  }
+
+  function getActiveTheme() {
+    const stored = readStoredTheme();
+    return stored === 'dark' ? 'dark' : 'light';
+  }
+
+  function renderThemeToggle() {
+    const header = document.querySelector('.site-header');
+    if (!header) return;
+
+    let toggle = document.getElementById('theme-toggle-btn');
+    if (!toggle) {
+      toggle = document.createElement('button');
+      toggle.id = 'theme-toggle-btn';
+      toggle.type = 'button';
+      toggle.className = 'nav-link nav-link-button header-theme-toggle';
+      toggle.addEventListener('click', () => {
+        const nextTheme = getActiveTheme() === 'dark' ? 'light' : 'dark';
+        setStoredTheme(nextTheme);
+        applyTheme(nextTheme);
+        renderHeaderControls();
+      });
+    }
+
+    // Keep toggle outside the nav group and pinned to the header's right edge.
+    header.appendChild(toggle);
+
+    const isDark = getActiveTheme() === 'dark';
+    toggle.textContent = isDark ? '☀️ Light' : '🌙 Dark';
+    toggle.title = isDark ? 'Switch to light mode' : 'Switch to dark mode';
+    toggle.setAttribute('aria-label', toggle.title);
+  }
+
+  function applyPhotosVisibility(nav) {
+    if (!nav) return;
+    const photosLink = nav.querySelector('a[href="/photos.html"]');
+    if (photosLink) photosLink.style.display = uiSettings.photosEnabled ? '' : 'none';
+
+    document.querySelectorAll('.search-input').forEach(input => {
+      if (!input || !input.placeholder) return;
+      if (!input.dataset.defaultPlaceholder) input.dataset.defaultPlaceholder = input.placeholder;
+
+      if (uiSettings.photosEnabled) {
+        input.placeholder = input.dataset.defaultPlaceholder;
+        return;
+      }
+
+      const original = input.dataset.defaultPlaceholder.toLowerCase();
+      if (original.includes('photo') || original.includes('videos and photos') || original === 'search…') {
+        input.placeholder = 'Search videos…';
+      }
+    });
+
+    if (!uiSettings.photosEnabled && (location.pathname === '/photos' || location.pathname === '/photos.html')) {
+      location.replace('/');
+    }
   }
 
   function ensureModal() {
@@ -184,7 +283,12 @@
     const nav = getNavContainer();
     if (!nav) return;
 
-    if (isAdminPage() && renderExistingAdminNavLink(nav)) return;
+    applyPhotosVisibility(nav);
+
+    if (isAdminPage() && renderExistingAdminNavLink(nav)) {
+      renderThemeToggle();
+      return;
+    }
 
     let wrap = document.getElementById('admin-mode-controls');
     if (!wrap) {
@@ -196,6 +300,7 @@
 
     if (!status.configured) {
       wrap.innerHTML = '<span class="nav-link" style="opacity:.75" title="Run npm run admin:key:create (or docker exec) to create your first key">Admin not configured</span>';
+      renderThemeToggle();
       return;
     }
 
@@ -207,6 +312,7 @@
             <span class="admin-lock-icon admin-lock-icon-unlocked"></span>
           </span>
         </a>`;
+      renderThemeToggle();
       return;
     }
 
@@ -219,26 +325,40 @@
       </button>`;
     const loginBtn = document.getElementById('admin-mode-login');
     if (loginBtn) loginBtn.addEventListener('click', openModal);
+    renderThemeToggle();
   }
 
   async function init() {
     if (uiReady) return;
     uiReady = true;
+
+    applyTheme(getActiveTheme());
+
     try {
       await fetchStatus();
     } catch {
       status = { configured: false, authenticated: false, expiresAt: null, sessionTtlMinutes: null };
     }
+
+    try {
+      await fetchUiSettings();
+    } catch {
+      uiSettings = { photosEnabled: true };
+    }
+
     renderHeaderControls();
     dispatchStatusChanged();
+    dispatchUiSettingsChanged();
   }
 
   window.OurTubeAdminMode = {
     init,
     refresh: async () => {
       await fetchStatus();
+      await fetchUiSettings();
       renderHeaderControls();
       dispatchStatusChanged();
+      dispatchUiSettingsChanged();
       return { ...status };
     },
     status: () => ({ ...status }),

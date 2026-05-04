@@ -107,9 +107,16 @@ function getStreamMimeType(row, filePath) {
   return mime.lookup(filePath) || 'video/mp4';
 }
 
+function parseStartSeconds(value) {
+  const seconds = Number.parseFloat(value);
+  if (!Number.isFinite(seconds) || seconds <= 0) return 0;
+  return seconds;
+}
+
 // GET /stream/:id/transcode - browser-compatible MP4 fallback stream
 router.get('/:id/transcode', (req, res) => {
   const db = getDb();
+  const startSeconds = parseStartSeconds(req.query.start);
   const virtualSegments = getVirtualSegmentRows(db, req.params.id, req);
 
   if (virtualSegments) {
@@ -151,6 +158,10 @@ router.get('/:id/transcode', (req, res) => {
         }
         console.error('[stream] Virtual transcode error:', err.message);
       });
+
+    if (startSeconds > 0) {
+      cmd.seekInput(startSeconds);
+    }
 
     const pass = new PassThrough();
     pass.on('data', chunk => addBytes(sessionId, chunk.length));
@@ -217,6 +228,10 @@ router.get('/:id/transcode', (req, res) => {
       }
       console.error('[stream] Transcode error:', err.message);
     });
+
+  if (startSeconds > 0) {
+    cmd.seekInput(startSeconds);
+  }
 
   const pass = new PassThrough();
   pass.on('data', chunk => addBytes(sessionId, chunk.length));

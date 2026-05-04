@@ -29,12 +29,19 @@
       <!-- Video Player -->
       <div id="player-container" class="player-container">
         <video id="video-player" class="video-js vjs-big-play-centered vjs-fluid" controls preload="auto"></video>
+        <div id="stitched-clip-watermark" class="stitched-clip-watermark" style="display:none"></div>
       </div>
       <div id="stitched-progress" class="stitched-progress" style="display:none">
         <span id="stitched-current" class="stitched-time">0:00</span>
-        <input id="stitched-seek" class="stitched-seek" type="range" min="0" max="100" step="0.1" value="0" />
+        <div class="stitched-seek-wrap">
+          <input id="stitched-seek" class="stitched-seek" type="range" min="0" max="100" step="0.1" value="0" />
+          <div id="stitched-seek-ticks" class="stitched-seek-ticks" aria-hidden="true"></div>
+        </div>
         <span id="stitched-total" class="stitched-time">0:00</span>
       </div>
+      <p id="stitched-notice" class="stitched-notice" style="display:none">
+        Stitched Video: This video is made up of multiple clips, and sequencing may not always be as expected.
+      </p>
       <p id="compatibility-badge" style="display:none;margin:8px 0 0;color:#1f4b99;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.04em">Compatibility Mode</p>
       <p id="playback-warning" style="display:none;padding:8px 2px;color:#8a5a00;font-size:13px"></p>
 
@@ -52,6 +59,34 @@
         </div>
         <div class="media-meta" id="media-meta"></div>
         <div class="media-desc" id="media-desc"></div>
+
+        <div id="stitched-segments" class="stitched-segments" style="display:none">
+          <button
+            id="stitched-segments-toggle"
+            class="stitched-segments-toggle"
+            type="button"
+            aria-expanded="false"
+            aria-controls="stitched-segments-list"
+          >
+            Included clips
+            <span id="stitched-segments-count" class="stitched-segments-count"></span>
+          </button>
+          <ul id="stitched-segments-list" class="stitched-segments-list" hidden></ul>
+        </div>
+
+        <div id="stitched-clip-watermark-control" class="stitched-clip-watermark-control" style="display:none">
+          <label class="stitched-clip-watermark-label" for="stitched-clip-watermark-toggle">
+            <input id="stitched-clip-watermark-toggle" type="checkbox" />
+            Show current clip watermark
+          </label>
+          <label class="stitched-clip-watermark-label" for="stitched-clip-watermark-mode">
+            Watermark text
+            <select id="stitched-clip-watermark-mode" class="stitched-clip-watermark-mode">
+              <option value="full">Clip number + name</option>
+              <option value="number">Clip number only</option>
+            </select>
+          </label>
+        </div>
 
         <div id="tags-container" class="tags-container"></div>
         <div id="faces-container" class="faces-container"></div>

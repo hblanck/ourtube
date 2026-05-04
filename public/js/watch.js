@@ -16,8 +16,15 @@
   let expectedDuration = 0;
   let stitchedPlayback = false;
   let isSeekingStitched = false;
+  let stitchedSeekOffset = 0;
   let adminModeEnabled = false;
   let currentMedia = null;
+  let stitchedSegmentTimeline = [];
+  let clipWatermarkEnabled = true;
+  let clipWatermarkMode = 'full';
+
+  const CLIP_WATERMARK_STORAGE_KEY = 'watch_stitched_clip_watermark';
+  const CLIP_WATERMARK_MODE_STORAGE_KEY = 'watch_stitched_clip_watermark_mode';
 
   function escHtml(str) {
     return String(str || '')
@@ -61,17 +68,115 @@
     return {
       container: document.getElementById('stitched-progress'),
       seek: document.getElementById('stitched-seek'),
+      ticks: document.getElementById('stitched-seek-ticks'),
       current: document.getElementById('stitched-current'),
-      total: document.getElementById('stitched-total')
+      total: document.getElementById('stitched-total'),
+      notice: document.getElementById('stitched-notice')
     };
   }
 
+  function getStitchedClipWatermarkElements() {
+    return {
+      overlay: document.getElementById('stitched-clip-watermark'),
+      control: document.getElementById('stitched-clip-watermark-control'),
+      toggle: document.getElementById('stitched-clip-watermark-toggle'),
+      mode: document.getElementById('stitched-clip-watermark-mode')
+    };
+  }
+
+  function readClipWatermarkPreference() {
+    try {
+      const raw = localStorage.getItem(CLIP_WATERMARK_STORAGE_KEY);
+      if (raw === null) return true;
+      return raw !== '0';
+    } catch {
+      return true;
+    }
+  }
+
+  function persistClipWatermarkPreference(enabled) {
+    try {
+      localStorage.setItem(CLIP_WATERMARK_STORAGE_KEY, enabled ? '1' : '0');
+    } catch {
+      // Ignore storage failures (private mode, blocked storage, etc.)
+    }
+  }
+
+  function readClipWatermarkModePreference() {
+    try {
+      const raw = localStorage.getItem(CLIP_WATERMARK_MODE_STORAGE_KEY);
+      return raw === 'number' ? 'number' : 'full';
+    } catch {
+      return 'full';
+    }
+  }
+
+  function persistClipWatermarkModePreference(mode) {
+    try {
+      localStorage.setItem(CLIP_WATERMARK_MODE_STORAGE_KEY, mode === 'number' ? 'number' : 'full');
+    } catch {
+      // Ignore storage failures (private mode, blocked storage, etc.)
+    }
+  }
+
+  function bindClipWatermarkToggle() {
+    const { toggle, mode } = getStitchedClipWatermarkElements();
+    if (!toggle || toggle.dataset.bound === '1') return;
+
+    toggle.addEventListener('change', () => {
+      clipWatermarkEnabled = !!toggle.checked;
+      persistClipWatermarkPreference(clipWatermarkEnabled);
+      updateCurrentClipWatermark();
+    });
+
+    toggle.dataset.bound = '1';
+
+    if (mode && mode.dataset.bound !== '1') {
+      mode.addEventListener('change', () => {
+        clipWatermarkMode = mode.value === 'number' ? 'number' : 'full';
+        persistClipWatermarkModePreference(clipWatermarkMode);
+        updateCurrentClipWatermark();
+      });
+      mode.dataset.bound = '1';
+    }
+  }
+
+  function getTimelineCurrentTime() {
+    if (!player) return 0;
+    const base = (stitchedPlayback && compatibilityMode) ? stitchedSeekOffset : 0;
+    return base + (player.currentTime() || 0);
+  }
+
+  function buildTranscodeUrl(media, startSeconds = 0) {
+    const url = new URL(`/stream/${media.id}/transcode`, location.origin);
+    if (startSeconds > 0) url.searchParams.set('start', String(startSeconds));
+    // Ensure browsers do not reuse a stale transcode response when scrubbing.
+    url.searchParams.set('_ts', String(Date.now()));
+    return url.pathname + url.search;
+  }
+
+  function seekStitchedPlayback(targetSeconds) {
+    if (!player || !currentMedia) return;
+
+    const clamped = Math.max(0, Math.min(targetSeconds, expectedDuration || targetSeconds));
+    const wasPaused = player.paused();
+
+    stitchedSeekOffset = clamped;
+    player.src({ src: buildTranscodeUrl(currentMedia, clamped), type: 'video/mp4' });
+    syncCompatibilityDurationUi();
+
+    if (!wasPaused) {
+      player.play().catch(() => {});
+    }
+  }
+
   function updateStitchedProgress() {
-    const { container, seek, current, total } = getStitchedProgressElements();
+    const { container, seek, current, total, notice } = getStitchedProgressElements();
     if (!container || !seek || !current || !total) return;
 
     const shouldShow = stitchedPlayback && compatibilityMode && expectedDuration > 0;
     container.style.display = shouldShow ? 'flex' : 'none';
+    if (notice) notice.style.display = shouldShow ? 'block' : 'none';
 
     const playerRoot = player?.el();
     if (playerRoot) {
@@ -80,7 +185,7 @@
 
     if (!shouldShow || !player) return;
 
-    const currentTime = Math.max(0, Math.min(player.currentTime() || 0, expectedDuration));
+    const currentTime = Math.max(0, Math.min(getTimelineCurrentTime(), expectedDuration));
     seek.max = String(expectedDuration);
     if (!isSeekingStitched) seek.value = String(currentTime);
     current.textContent = fmtDur(currentTime);
@@ -101,8 +206,13 @@
     });
 
     const commitSeek = () => {
-      if (player && Number.isFinite(parseFloat(seek.value))) {
-        player.currentTime(parseFloat(seek.value));
+      const seekValue = parseFloat(seek.value);
+      if (player && Number.isFinite(seekValue)) {
+        if (stitchedPlayback && compatibilityMode) {
+          seekStitchedPlayback(seekValue);
+        } else {
+          player.currentTime(seekValue);
+        }
       }
       isSeekingStitched = false;
       updateStitchedProgress();
@@ -117,6 +227,45 @@
     seek.dataset.bound = '1';
   }
 
+  function bindStitchedSegmentToggle() {
+    const toggle = document.getElementById('stitched-segments-toggle');
+    const list = document.getElementById('stitched-segments-list');
+    if (!toggle || !list || toggle.dataset.bound === '1') return;
+
+    toggle.addEventListener('click', () => {
+      const expanded = toggle.getAttribute('aria-expanded') === 'true';
+      const next = !expanded;
+      toggle.setAttribute('aria-expanded', String(next));
+      list.hidden = !next;
+    });
+
+    toggle.dataset.bound = '1';
+  }
+
+  function bindStitchedSegmentListActions() {
+    const list = document.getElementById('stitched-segments-list');
+    if (!list || list.dataset.bound === '1') return;
+
+    list.addEventListener('click', event => {
+      const trigger = event.target.closest('[data-segment-offset]');
+      if (!trigger || !currentMedia || currentMedia.type !== 'video') return;
+
+      const offset = parseFloat(trigger.getAttribute('data-segment-offset'));
+      if (!Number.isFinite(offset) || !player) return;
+
+      if (stitchedPlayback && compatibilityMode) {
+        seekStitchedPlayback(offset);
+        player.play().catch(() => {});
+        return;
+      }
+
+      player.currentTime(offset);
+      player.play().catch(() => {});
+    });
+
+    list.dataset.bound = '1';
+  }
+
   function syncCompatibilityDurationUi() {
     if (!player || !compatibilityMode || !expectedDuration) return;
 
@@ -126,7 +275,7 @@
       }
     } catch { /* ignore */ }
 
-    const current = Math.min(player.currentTime() || 0, expectedDuration);
+    const current = Math.min(getTimelineCurrentTime(), expectedDuration);
     const root = player.el();
     if (!root) return;
 
@@ -134,6 +283,7 @@
     setTimeControlDisplay(root.querySelector('.vjs-duration-display'), fmtDur(expectedDuration));
     setTimeControlDisplay(root.querySelector('.vjs-remaining-time-display'), `-${fmtDur(Math.max(expectedDuration - current, 0))}`);
     updateStitchedProgress();
+    updateCurrentClipWatermark();
   }
 
   function initVideo(media) {
@@ -149,8 +299,10 @@
     transcodeFallbackTried = false;
     expectedDuration = media.duration || 0;
     stitchedPlayback = !!media.is_virtual;
+    stitchedSeekOffset = 0;
     bindStitchedProgressEvents();
     updateStitchedProgress();
+    updateCurrentClipWatermark();
 
     if (player) {
       setVideoSource(media, shouldPreferTranscode(media));
@@ -169,9 +321,18 @@
     player.on('durationchange', syncCompatibilityDurationUi);
     player.on('timeupdate', syncCompatibilityDurationUi);
     player.on('loadeddata', syncCompatibilityDurationUi);
-    player.on('seeked', updateStitchedProgress);
-    player.on('pause', updateStitchedProgress);
-    player.on('play', updateStitchedProgress);
+    player.on('seeked', () => {
+      updateStitchedProgress();
+      updateCurrentClipWatermark();
+    });
+    player.on('pause', () => {
+      updateStitchedProgress();
+      updateCurrentClipWatermark();
+    });
+    player.on('play', () => {
+      updateStitchedProgress();
+      updateCurrentClipWatermark();
+    });
 
     player.on('error', () => {
       if (!transcodeFallbackTried) {
@@ -202,7 +363,8 @@
     const compatibilityBadge = document.getElementById('compatibility-badge');
     if (compatibilityBadge) compatibilityBadge.style.display = useTranscode ? 'block' : 'none';
     if (useTranscode) {
-      player.src({ src: `/stream/${media.id}/transcode`, type: 'video/mp4' });
+      const startSeconds = (stitchedPlayback && compatibilityMode) ? stitchedSeekOffset : 0;
+      player.src({ src: buildTranscodeUrl(media, startSeconds), type: 'video/mp4' });
       syncCompatibilityDurationUi();
       return;
     }
@@ -210,6 +372,7 @@
     if (warning) warning.style.display = 'none';
     player.src({ src: `/stream/${media.id}`, type: getMime(media) });
     updateStitchedProgress();
+    updateCurrentClipWatermark();
   }
 
   function shouldPreferTranscode(media) {
@@ -258,12 +421,167 @@
     const compatibilityBadge = document.getElementById('compatibility-badge');
     if (compatibilityBadge) compatibilityBadge.style.display = 'none';
     stitchedPlayback = false;
+    stitchedSeekOffset = 0;
+    stitchedSegmentTimeline = [];
     updateStitchedProgress();
+    updateCurrentClipWatermark();
     const photoContainer = document.getElementById('photo-container');
     photoContainer.style.display = '';
     const img = document.getElementById('photo-img');
     img.src = `/photo/${media.id}?width=1200`;
     img.alt = escHtml(media.friendly_name || media.file_name);
+  }
+
+  function getStitchedSegments(media) {
+    const directSegments = Array.isArray(media.segments) ? media.segments : [];
+    if (directSegments.length) return directSegments;
+    const metadataSegments = Array.isArray(media.raw_metadata?.segments) ? media.raw_metadata.segments : [];
+    return metadataSegments;
+  }
+
+  function renderStitchedSeekTicks(media) {
+    const { ticks } = getStitchedProgressElements();
+    if (!ticks) return;
+
+    const segments = media?.is_virtual ? getStitchedSegments(media) : [];
+    const totalDuration = Number(media?.duration) || 0;
+    if (segments.length <= 1 || totalDuration <= 0) {
+      ticks.innerHTML = '';
+      return;
+    }
+
+    let elapsed = 0;
+    const marks = [];
+    for (let i = 0; i < segments.length - 1; i += 1) {
+      elapsed += Math.max(0, Number(segments[i]?.duration) || 0);
+      if (elapsed <= 0 || elapsed >= totalDuration) continue;
+      const left = (elapsed / totalDuration) * 100;
+      marks.push(`<span class="stitched-seek-tick" style="left:${left.toFixed(4)}%"></span>`);
+    }
+
+    ticks.innerHTML = marks.join('');
+  }
+
+  function buildStitchedSegmentTimeline(segments) {
+    const timeline = [];
+    let startSeconds = 0;
+
+    segments.forEach((segment, index) => {
+      const durationSeconds = Math.max(0, Number(segment?.duration) || 0);
+      const label = segment.friendly_name || segment.file_name || segment.file_path || `Clip ${index + 1}`;
+      timeline.push({
+        index,
+        start: startSeconds,
+        end: startSeconds + durationSeconds,
+        label
+      });
+      startSeconds += durationSeconds;
+    });
+
+    return timeline;
+  }
+
+  function getCurrentStitchedSegment(seconds) {
+    if (!stitchedSegmentTimeline.length) return null;
+
+    const t = Math.max(0, Number(seconds) || 0);
+    for (let i = 0; i < stitchedSegmentTimeline.length; i += 1) {
+      const segment = stitchedSegmentTimeline[i];
+      const isLast = i === stitchedSegmentTimeline.length - 1;
+      if (t < segment.end || isLast) {
+        return segment;
+      }
+    }
+
+    return stitchedSegmentTimeline[stitchedSegmentTimeline.length - 1] || null;
+  }
+
+  function updateCurrentClipWatermark() {
+    const { overlay } = getStitchedClipWatermarkElements();
+    if (!overlay) return;
+
+    const shouldShow =
+      clipWatermarkEnabled &&
+      stitchedPlayback &&
+      currentMedia?.type === 'video' &&
+      stitchedSegmentTimeline.length > 0;
+
+    if (!shouldShow) {
+      overlay.style.display = 'none';
+      overlay.textContent = '';
+      return;
+    }
+
+    const segment = getCurrentStitchedSegment(getTimelineCurrentTime());
+    if (!segment) {
+      overlay.style.display = 'none';
+      overlay.textContent = '';
+      return;
+    }
+
+    overlay.textContent =
+      clipWatermarkMode === 'number'
+        ? `Clip ${segment.index + 1}`
+        : `Clip ${segment.index + 1}: ${segment.label}`;
+    overlay.style.display = 'block';
+  }
+
+  function renderClipWatermarkControl(showControl) {
+    const { control, toggle, mode } = getStitchedClipWatermarkElements();
+    if (!control || !toggle) return;
+
+    control.style.display = showControl ? 'block' : 'none';
+    toggle.checked = !!clipWatermarkEnabled;
+    if (mode) mode.value = clipWatermarkMode;
+  }
+
+  function renderStitchedSegments(media) {
+    const container = document.getElementById('stitched-segments');
+    const toggle = document.getElementById('stitched-segments-toggle');
+    const count = document.getElementById('stitched-segments-count');
+    const list = document.getElementById('stitched-segments-list');
+    if (!container || !toggle || !count || !list) return;
+
+    const segments = media.is_virtual ? getStitchedSegments(media) : [];
+    if (!segments.length) {
+      container.style.display = 'none';
+      stitchedSegmentTimeline = [];
+      renderClipWatermarkControl(false);
+      count.textContent = '';
+      list.innerHTML = '';
+      list.hidden = true;
+      toggle.setAttribute('aria-expanded', 'false');
+      renderStitchedSeekTicks(null);
+      updateCurrentClipWatermark();
+      return;
+    }
+
+    container.style.display = 'block';
+    stitchedSegmentTimeline = buildStitchedSegmentTimeline(segments);
+    renderClipWatermarkControl(true);
+    renderStitchedSeekTicks(media);
+    count.textContent = `(${segments.length})`;
+    list.hidden = true;
+    toggle.setAttribute('aria-expanded', 'false');
+    let segmentOffset = 0;
+    list.innerHTML = segments.map((segment, index) => {
+      const label = segment.friendly_name || segment.file_name || segment.file_path || `Clip ${index + 1}`;
+      const durationSeconds = Number(segment.duration) || 0;
+      const duration = fmtDur(durationSeconds);
+      const startLabel = fmtDur(segmentOffset);
+      const item = `<li class="stitched-segment-item">
+        <button class="stitched-segment-jump" type="button" data-segment-offset="${segmentOffset}">
+          <span class="stitched-segment-index">${index + 1}.</span>
+          <span class="stitched-segment-name" title="${escHtml(label)}">${escHtml(label)}</span>
+          <span class="stitched-segment-start">${startLabel}</span>
+          <span class="stitched-segment-duration">${duration}</span>
+        </button>
+      </li>`;
+      segmentOffset += durationSeconds;
+      return item;
+    }).join('');
+
+    updateCurrentClipWatermark();
   }
 
   function renderMeta(media) {
@@ -296,6 +614,8 @@
 
     const descEl = document.getElementById('media-desc');
     descEl.textContent = media.description || '';
+
+    renderStitchedSegments(media);
 
     const tagsEl = document.getElementById('tags-container');
     const tags = Array.isArray(media.tags) ? media.tags : [];
@@ -348,6 +668,12 @@
   }
 
   async function init() {
+    clipWatermarkEnabled = readClipWatermarkPreference();
+    clipWatermarkMode = readClipWatermarkModePreference();
+    bindStitchedSegmentToggle();
+    bindStitchedSegmentListActions();
+    bindClipWatermarkToggle();
+
     const adminStatus = window.OurTubeAdminMode?.status?.();
     adminModeEnabled = !!adminStatus?.authenticated;
 
