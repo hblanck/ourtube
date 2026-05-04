@@ -299,7 +299,10 @@
 
   function getPreviewUrl(item) {
     const encodedId = encodeURIComponent(item.id);
-    if (item.is_virtual) return `/stream/${encodedId}/transcode`;
+    // Avoid stitched virtual preview streams on listing pages.
+    // Safari can issue startup transcode probes here, which interferes with
+    // first-watch playback flow right after a fresh server restart.
+    if (item.is_virtual) return '';
     return `/stream/${encodedId}`;
   }
 

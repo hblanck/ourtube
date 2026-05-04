@@ -8,6 +8,7 @@ const morgan = require('morgan');
 const schedule = require('node-schedule');
 const mime = require('mime-types');
 const sharp = require('sharp');
+const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
 
 const { initDb, getDb } = require('./db');
@@ -22,6 +23,75 @@ const PORT = parseInt(process.env.PORT) || 3000;
 const DATA_DIR = process.env.DATA_DIR || '/data';
 
 const app = express();
+const PLAYBACK_SESSION_COOKIE = 'ourtube_playback_session';
+
+function parseCookies(req) {
+  if (req._parsedCookies) return req._parsedCookies;
+
+  const raw = req.headers.cookie || '';
+  const out = {};
+
+  raw.split(';').forEach(pair => {
+    const idx = pair.indexOf('=');
+    if (idx <= 0) return;
+    const key = pair.slice(0, idx).trim();
+    const value = pair.slice(idx + 1).trim();
+    out[key] = decodeURIComponent(value);
+  });
+
+  req._parsedCookies = out;
+  return out;
+}
+
+function serializeCookie(name, value, opts = {}) {
+  const parts = [`${name}=${encodeURIComponent(value)}`];
+  if (opts.maxAge !== undefined) parts.push(`Max-Age=${Math.floor(opts.maxAge)}`);
+  if (opts.path) parts.push(`Path=${opts.path}`);
+  if (opts.sameSite) parts.push(`SameSite=${opts.sameSite}`);
+  if (opts.secure) parts.push('Secure');
+  return parts.join('; ');
+}
+
+function getClientIp(req) {
+  const xff = req.headers['x-forwarded-for'];
+  if (typeof xff === 'string' && xff.length > 0) {
+    return xff.split(',')[0].trim();
+  }
+
+  return req.ip || req.socket?.remoteAddress || 'unknown';
+}
+
+function getMediaRateLimitKey(req) {
+  const cookies = parseCookies(req);
+  const adminSession = cookies.ourtube_admin_session || '';
+  const playbackSession = req.playbackSessionId || cookies[PLAYBACK_SESSION_COOKIE] || '';
+  const sessionPart = adminSession || playbackSession;
+  const ip = getClientIp(req);
+
+  // Include route bucket so bursty thumbnail loads do not consume stream budget.
+  const routeBucket = req.path.startsWith('/thumbnail/') ? 'thumb' : req.path.startsWith('/photo/') ? 'photo' : 'stream';
+
+  if (sessionPart) return `${routeBucket}|sid:${sessionPart}`;
+  return `${routeBucket}|ip:${ip}`;
+}
+
+function ensurePlaybackSession(req, res, next) {
+  const cookies = parseCookies(req);
+  let sessionId = cookies[PLAYBACK_SESSION_COOKIE];
+
+  if (!sessionId) {
+    sessionId = crypto.randomBytes(12).toString('base64url');
+    res.append('Set-Cookie', serializeCookie(PLAYBACK_SESSION_COOKIE, sessionId, {
+      maxAge: 60 * 60 * 24 * 30,
+      path: '/',
+      sameSite: 'Lax',
+      secure: process.env.NODE_ENV === 'production',
+    }));
+  }
+
+  req.playbackSessionId = sessionId;
+  next();
+}
 
 function isPhotosFeatureEnabled() {
   const db = getDb();
@@ -33,6 +103,7 @@ app.use(cors());
 app.use(morgan('combined'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
+app.use(ensurePlaybackSession);
 
 app.use((req, res, next) => {
   if (req.path !== '/photos' && req.path !== '/photos.html') return next();
@@ -42,7 +113,10 @@ app.use((req, res, next) => {
 
 // Rate limiting — generous limits for private home-network use
 const apiLimiter = rateLimit({ windowMs: 60_000, limit: 300, standardHeaders: true, legacyHeaders: false });
-const streamLimiter = rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: true, legacyHeaders: false });
+// Media playback can burst many requests quickly (Safari + 4K range fetches, thumbnail grids).
+const streamLimiter = rateLimit({ windowMs: 60_000, limit: 2000, standardHeaders: true, legacyHeaders: false, keyGenerator: getMediaRateLimitKey });
+const thumbnailLimiter = rateLimit({ windowMs: 60_000, limit: 1000, standardHeaders: true, legacyHeaders: false, keyGenerator: getMediaRateLimitKey });
+const photoLimiter = rateLimit({ windowMs: 60_000, limit: 1000, standardHeaders: true, legacyHeaders: false, keyGenerator: getMediaRateLimitKey });
 const adminLimiter = rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: true, legacyHeaders: false });
 
 // Static files
@@ -57,7 +131,7 @@ app.use('/api/admin', adminLimiter, requireAdminAuth, adminApiRouter);
 app.use('/stream', streamLimiter, streamRouter);
 
 // Thumbnail serving
-app.get('/thumbnail/:id', streamLimiter, (req, res) => {
+app.get('/thumbnail/:id', thumbnailLimiter, (req, res) => {
   const db = getDb();
   const row = db.prepare(
     `SELECT m.thumbnail_path, m.visibility AS media_visibility, sl.visibility AS source_visibility
@@ -76,7 +150,7 @@ app.get('/thumbnail/:id', streamLimiter, (req, res) => {
 });
 
 // Photo serving (with optional resize)
-app.get('/photo/:id', streamLimiter, async (req, res) => {
+app.get('/photo/:id', photoLimiter, async (req, res) => {
   if (!isPhotosFeatureEnabled()) return res.status(404).json({ error: 'Not found' });
   const db = getDb();
   const row = db.prepare(

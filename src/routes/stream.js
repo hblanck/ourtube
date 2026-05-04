@@ -117,12 +117,22 @@ function parseStartSeconds(value) {
   return seconds;
 }
 
+function estimateVirtualTranscodeSizeBytes(segmentRows) {
+  const totalDurationSeconds = (segmentRows || []).reduce((sum, row) => {
+    const duration = Number.parseFloat(row?.duration);
+    return Number.isFinite(duration) && duration > 0 ? sum + duration : sum;
+  }, 0);
+
+  // Approximate target bitrate for Safari probe headers only.
+  // This does not need to be exact, but Safari expects a concrete total in 206 Content-Range.
+  const estimatedBytesPerSecond = 320_000; // ~2.56 Mbps
+  const estimated = Math.round(totalDurationSeconds * estimatedBytesPerSecond);
+  return Math.max(estimated, 1_048_576);
+}
+
 function getCompatibilityTranscodeOptions() {
   return [
-<<<<<<< HEAD
-=======
     // Ensure broad browser/iOS support and prevent x264 failures on odd dimensions.
->>>>>>> f1de24dc6c5bfde6c56ce455907ed0a427cb69e6
     '-vf scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p',
     '-profile:v baseline',
     '-level 3.1',
@@ -208,6 +218,52 @@ function waitForFile(filePath, timeoutMs) {
         resolve(false);
       }
     }, 100);
+    timer.unref?.();
+  });
+}
+
+function extractFirstHlsSegmentName(playlistText) {
+  const lines = String(playlistText || '').split(/\r?\n/);
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) continue;
+    if (/^seg-\d{6}\.ts$/.test(line)) return line;
+  }
+  return '';
+}
+
+function waitForHlsPlaylistReady(job, timeoutMs) {
+  const startedAt = Date.now();
+  return new Promise(resolve => {
+    const timer = setInterval(() => {
+      if (job.stopped) {
+        clearInterval(timer);
+        resolve(false);
+        return;
+      }
+
+      if (fs.existsSync(job.playlistPath)) {
+        try {
+          const text = fs.readFileSync(job.playlistPath, 'utf8');
+          const firstSegment = extractFirstHlsSegmentName(text);
+          if (firstSegment) {
+            const segmentPath = path.join(job.dir, firstSegment);
+            if (fs.existsSync(segmentPath)) {
+              clearInterval(timer);
+              resolve(true);
+              return;
+            }
+          }
+        } catch {
+          // Keep polling until timeout.
+        }
+      }
+
+      if (Date.now() - startedAt >= timeoutMs) {
+        clearInterval(timer);
+        resolve(false);
+      }
+    }, 120);
     timer.unref?.();
   });
 }
@@ -316,10 +372,7 @@ function getExistingVirtualHlsJob(mediaId) {
   return activeHlsJobs.get(mediaId) || null;
 }
 
-<<<<<<< HEAD
-=======
 // GET /stream/:id/hls/index.m3u8 - iOS/Safari-friendly compatibility stream for virtual videos
->>>>>>> f1de24dc6c5bfde6c56ce455907ed0a427cb69e6
 router.get('/:id/hls/index.m3u8', async (req, res) => {
   if (!isVirtualMediaId(req.params.id)) {
     return res.status(400).json({ error: 'HLS compatibility is available for virtual videos only' });
@@ -329,7 +382,7 @@ router.get('/:id/hls/index.m3u8', async (req, res) => {
   if (!job) return res.status(404).json({ error: 'Not found' });
 
   touchHlsJob(job);
-  const playlistReady = await waitForFile(job.playlistPath, HLS_PLAYLIST_WAIT_MS);
+  const playlistReady = await waitForHlsPlaylistReady(job, HLS_PLAYLIST_WAIT_MS);
   if (!playlistReady) {
     return res.status(503).json({ error: 'HLS stream is starting, please retry' });
   }
@@ -339,10 +392,7 @@ router.get('/:id/hls/index.m3u8', async (req, res) => {
   fs.createReadStream(job.playlistPath).pipe(res);
 });
 
-<<<<<<< HEAD
-=======
 // GET /stream/:id/hls/:segment - HLS segment files for virtual compatibility stream
->>>>>>> f1de24dc6c5bfde6c56ce455907ed0a427cb69e6
 router.get('/:id/hls/:segment', async (req, res) => {
   if (!isVirtualMediaId(req.params.id)) {
     return res.status(400).json({ error: 'HLS compatibility is available for virtual videos only' });
@@ -380,6 +430,42 @@ router.get('/:id/transcode', (req, res) => {
   );
 
   if (virtualSegments) {
+    // Safety guard: virtual transcode requests from stale listing-page preview code
+    // do not include watch-specific query params and can poison first playback on Safari.
+    // Watch page requests always include _ts (or start on stitched seeking).
+    const hasWatchTranscodeParams = req.query._ts != null || req.query.start != null;
+    if (!hasWatchTranscodeParams) {
+      res.status(204).end();
+      return;
+    }
+
+    // Safari sends a Range: bytes=0-1 probe to check if the server supports byte ranges.
+    // If we return 200 (ignoring the Range header), Safari closes the connection immediately.
+    // For small range probes, respond with a minimal 206 immediately so Safari knows
+    // ranges are supported and will proceed to make a full content request.
+    const rangeHeader = req.headers.range;
+    if (rangeHeader) {
+      const rangeMatch = rangeHeader.match(/^bytes=(\d+)-(\d+)$/);
+      if (rangeMatch) {
+        const rangeStart = parseInt(rangeMatch[1], 10);
+        const rangeEnd = parseInt(rangeMatch[2], 10);
+        const rangeLen = rangeEnd - rangeStart + 1;
+        if (rangeStart === 0 && rangeEnd === 1 && rangeLen === 2) {
+          const estimatedTotalBytes = Math.max(estimateVirtualTranscodeSizeBytes(virtualSegments), rangeEnd + 1);
+          // Small probe — satisfy it immediately without starting ffmpeg
+          res.writeHead(206, {
+            'Content-Type': 'video/mp4',
+            'Content-Range': `bytes ${rangeStart}-${rangeEnd}/${estimatedTotalBytes}`,
+            'Accept-Ranges': 'bytes',
+            'Content-Length': rangeLen,
+            'Cache-Control': 'no-store',
+          });
+          res.end(Buffer.alloc(rangeLen));
+          return;
+        }
+      }
+    }
+
     const concatListPath = createConcatListFile(virtualSegments.map(row => row.file_path));
     const sessionId = upsertSession({
       mediaId: req.params.id,
@@ -391,6 +477,7 @@ router.get('/:id/transcode', (req, res) => {
 
     res.writeHead(200, {
       'Content-Type': 'video/mp4',
+      'Accept-Ranges': 'bytes',
       'Cache-Control': 'no-store',
       Connection: 'keep-alive',
       'Transfer-Encoding': 'chunked'

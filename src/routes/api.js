@@ -244,6 +244,22 @@ router.get('/media/:id', (req, res) => {
        WHERE m.source_location_id = ? AND m.type = 'video'`
     ).all(virtualRef.sourceLocationId);
 
+    // Normalize rows: if source_location_entries table is empty, infer entry data from file structure
+    for (const row of rows) {
+      if (!row.source_entry_path && row.stitch_directories && row.file_path && row.source_location_path) {
+        // If file_path starts with source_location_path, use that as base
+        const relativePath = row.file_path.startsWith(row.source_location_path)
+          ? row.file_path.substring(row.source_location_path.length).replace(/^\//, '')
+          : '';
+        if (relativePath) {
+          // Infer the first directory level as the stitch group
+          const parts = relativePath.split('/');
+          row.source_entry_path = row.source_location_path;
+          row.source_entry_type = 'directory';
+        }
+      }
+    }
+
     const segmentRows = rows
       .filter(row => includeHidden || canAccessFromRow(row, req))
       .filter(row => getStitchGroupPath(row) === virtualRef.groupPath);

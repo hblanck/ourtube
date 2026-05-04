@@ -18,11 +18,16 @@
   let stitchedPlayback = false;
   let isSeekingStitched = false;
   let stitchedSeekOffset = 0;
+  let stitchedTranscodeTimeOrigin = null;
   let adminModeEnabled = false;
   let currentMedia = null;
   let stitchedSegmentTimeline = [];
   let clipWatermarkEnabled = true;
   let clipWatermarkMode = 'full';
+  let hlsStartupRetryTimer = null;
+  let hlsStartupRetryCount = 0;
+  let transcodeStartupFallbackTimer = null;
+  let transcodeStartupFallbackTried = false;
 
   const CLIP_WATERMARK_STORAGE_KEY = 'watch_stitched_clip_watermark';
   const CLIP_WATERMARK_MODE_STORAGE_KEY = 'watch_stitched_clip_watermark_mode';
@@ -144,8 +149,18 @@
 
   function getTimelineCurrentTime() {
     if (!player) return 0;
-    const base = (stitchedPlayback && compatibilityMode && compatibilityTransport === 'transcode') ? stitchedSeekOffset : 0;
-    return base + (player.currentTime() || 0);
+    const rawCurrent = Number(player.currentTime());
+    const safeCurrent = Number.isFinite(rawCurrent) && rawCurrent >= 0 ? rawCurrent : 0;
+
+    if (stitchedPlayback && compatibilityMode && compatibilityTransport === 'transcode') {
+      if (!Number.isFinite(stitchedTranscodeTimeOrigin)) {
+        stitchedTranscodeTimeOrigin = safeCurrent;
+      }
+      const elapsedSinceSourceAttach = Math.max(0, safeCurrent - stitchedTranscodeTimeOrigin);
+      return stitchedSeekOffset + elapsedSinceSourceAttach;
+    }
+
+    return safeCurrent;
   }
 
   function buildTranscodeUrl(media, startSeconds = 0) {
@@ -158,25 +173,96 @@
 
   function buildHlsUrl(media) {
     const url = new URL(`/stream/${media.id}/hls/index.m3u8`, location.origin);
-<<<<<<< HEAD
-=======
     // Keep parity with transcode URL cache-busting behavior.
->>>>>>> f1de24dc6c5bfde6c56ce455907ed0a427cb69e6
     url.searchParams.set('_ts', String(Date.now()));
     return url.pathname + url.search;
   }
 
-<<<<<<< HEAD
-  function isSafariFamily() {
-    const ua = navigator.userAgent || '';
-    const hasSafari = /Safari\//.test(ua) || /AppleWebKit\//.test(ua);
-    const excluded = /(Chrome|CriOS|Edg|FxiOS|OPR|Android)/.test(ua);
-    return hasSafari && !excluded;
+  function clearHlsStartupRetry() {
+    if (!hlsStartupRetryTimer) return;
+    clearTimeout(hlsStartupRetryTimer);
+    hlsStartupRetryTimer = null;
   }
 
-  function shouldUseHlsCompatibility(media) {
-    return !!media?.is_virtual && isSafariFamily();
-=======
+  function clearTranscodeStartupFallback() {
+    if (!transcodeStartupFallbackTimer) return;
+    clearTimeout(transcodeStartupFallbackTimer);
+    transcodeStartupFallbackTimer = null;
+  }
+
+  function scheduleHlsStartupRetry(media) {
+    clearHlsStartupRetry();
+    if (!player || !media) return;
+
+    hlsStartupRetryTimer = setTimeout(() => {
+      if (!player || compatibilityTransport !== 'hls') return;
+
+      const readyState = typeof player.readyState === 'function' ? Number(player.readyState()) : 0;
+      if (Number.isFinite(readyState) && readyState >= 2) return;
+      if (hlsStartupRetryCount >= 1) return;
+      hlsStartupRetryCount += 1;
+
+      const shouldResume = !player.paused();
+      const restartAt = Math.max(0, Number(player.currentTime()) || 0);
+      player.src({ src: buildHlsUrl(media), type: 'application/x-mpegURL' });
+      if (restartAt > 0) {
+        try {
+          player.currentTime(restartAt);
+        } catch {
+          // Ignore seek race while source is still attaching.
+        }
+      }
+      if (shouldResume) {
+        player.play().catch(() => {});
+      }
+    }, 1800);
+  }
+
+  function scheduleTranscodeStartupFallback(media) {
+    clearTranscodeStartupFallback();
+    if (!player || !media) return;
+    if (!media.is_virtual) return;
+    if (!isSafariOnMacOS()) return;
+    if (compatibilityTransport !== 'transcode') return;
+    if (transcodeStartupFallbackTried) return;
+
+    transcodeStartupFallbackTimer = setTimeout(() => {
+      if (!player || compatibilityTransport !== 'transcode') return;
+      const readyState = typeof player.readyState === 'function' ? Number(player.readyState()) : 0;
+      if (Number.isFinite(readyState) && readyState >= 2) return;
+
+      transcodeStartupFallbackTried = true;
+      compatibilityTransport = 'hls';
+      hlsStartupRetryCount = 0;
+      const shouldResume = !player.paused();
+      const restartAt = Math.max(0, Number(player.currentTime()) || 0);
+
+      const warning = document.getElementById('playback-warning');
+      if (warning) {
+        warning.textContent = 'Playback startup fallback: trying HLS...';
+        warning.style.display = 'block';
+      }
+
+      player.src({ src: buildHlsUrl(media), type: 'application/x-mpegURL' });
+      if (restartAt > 0) {
+        try {
+          player.currentTime(restartAt);
+        } catch {
+          // Ignore seek race while source is still attaching.
+        }
+      }
+      scheduleHlsStartupRetry(media);
+      if (shouldResume) {
+        const resumeOnce = () => {
+          player.play().catch(() => {});
+        };
+        player.one('loadedmetadata', resumeOnce);
+        player.one('canplay', resumeOnce);
+        player.play().catch(() => {});
+      }
+    }, 2200);
+  }
+
   function isLikelyIOS() {
     const ua = navigator.userAgent || '';
     const iOS = /iPad|iPhone|iPod/.test(ua);
@@ -184,10 +270,18 @@
     return iOS || iPadOS;
   }
 
+  function isSafariOnMacOS() {
+    const ua = navigator.userAgent || '';
+    // Check if it's Safari on macOS (not iOS/iPadOS)
+    const isMac = /Macintosh/.test(ua);
+    const notMobileOS = !/iPhone|iPad|iPod/.test(ua) && navigator.maxTouchPoints <= 1;
+    const hasSafari = /Safari\//.test(ua) && !/Chrome|CriOS|Edg|FxiOS|OPR/.test(ua);
+    return isMac && notMobileOS && hasSafari;
+  }
+
   function shouldUseHlsCompatibility(media) {
-    // iOS Safari is more reliable with HLS than live MP4 transcoding for stitched videos.
-    return !!media?.is_virtual && isLikelyIOS();
->>>>>>> f1de24dc6c5bfde6c56ce455907ed0a427cb69e6
+    // Prefer HLS first on Apple Safari for stitched playback.
+    return !!media?.is_virtual && (isLikelyIOS() || isSafariOnMacOS());
   }
 
   function seekStitchedPlayback(targetSeconds) {
@@ -197,6 +291,7 @@
     const wasPaused = player.paused();
 
     stitchedSeekOffset = clamped;
+    stitchedTranscodeTimeOrigin = null;
     player.src({ src: buildTranscodeUrl(currentMedia, clamped), type: 'video/mp4' });
     syncCompatibilityDurationUi();
 
@@ -220,11 +315,13 @@
 
     if (!shouldShow || !player) return;
 
-    const currentTime = Math.max(0, Math.min(getTimelineCurrentTime(), expectedDuration));
-    seek.max = String(expectedDuration);
+    const totalDuration = Math.max(0, Number(expectedDuration) || 0);
+    const timelineCurrent = Number(getTimelineCurrentTime());
+    const currentTime = Math.max(0, Math.min(Number.isFinite(timelineCurrent) ? timelineCurrent : 0, totalDuration));
+    seek.max = String(totalDuration);
     if (!isSeekingStitched) seek.value = String(currentTime);
     current.textContent = fmtDur(currentTime);
-    total.textContent = fmtDur(expectedDuration);
+    total.textContent = fmtDur(totalDuration);
   }
 
   function bindStitchedProgressEvents() {
@@ -310,13 +407,15 @@
       }
     } catch { /* ignore */ }
 
-    const current = Math.min(getTimelineCurrentTime(), expectedDuration);
+    const totalDuration = Math.max(0, Number(expectedDuration) || 0);
+    const timelineCurrent = Number(getTimelineCurrentTime());
+    const current = Math.max(0, Math.min(Number.isFinite(timelineCurrent) ? timelineCurrent : 0, totalDuration));
     const root = player.el();
     if (!root) return;
 
     setTimeControlDisplay(root.querySelector('.vjs-current-time-display'), fmtDur(current));
-    setTimeControlDisplay(root.querySelector('.vjs-duration-display'), fmtDur(expectedDuration));
-    setTimeControlDisplay(root.querySelector('.vjs-remaining-time-display'), `-${fmtDur(Math.max(expectedDuration - current, 0))}`);
+    setTimeControlDisplay(root.querySelector('.vjs-duration-display'), fmtDur(totalDuration));
+    setTimeControlDisplay(root.querySelector('.vjs-remaining-time-display'), `-${fmtDur(Math.max(totalDuration - current, 0))}`);
     updateStitchedProgress();
     updateCurrentClipWatermark();
   }
@@ -332,9 +431,12 @@
     const compatibilityBadge = document.getElementById('compatibility-badge');
     if (compatibilityBadge) compatibilityBadge.style.display = 'none';
     transcodeFallbackTried = false;
+    transcodeStartupFallbackTried = false;
+    clearTranscodeStartupFallback();
     expectedDuration = media.duration || 0;
     stitchedPlayback = !!media.is_virtual;
     stitchedSeekOffset = 0;
+    stitchedTranscodeTimeOrigin = null;
     bindStitchedProgressEvents();
     updateStitchedProgress();
     updateCurrentClipWatermark();
@@ -370,7 +472,7 @@
     });
 
     player.on('error', () => {
-      if (!transcodeFallbackTried) {
+      if (!transcodeFallbackTried && compatibilityTransport !== 'transcode') {
         transcodeFallbackTried = true;
         const warning = document.getElementById('playback-warning');
         if (warning) {
@@ -394,15 +496,20 @@
 
   function setVideoSource(media, useTranscode) {
     if (!player) return;
+    clearHlsStartupRetry();
+    clearTranscodeStartupFallback();
     compatibilityMode = useTranscode;
     compatibilityTransport = useTranscode ? (shouldUseHlsCompatibility(media) ? 'hls' : 'transcode') : 'none';
+    stitchedTranscodeTimeOrigin = null;
     const compatibilityBadge = document.getElementById('compatibility-badge');
     if (compatibilityBadge) compatibilityBadge.style.display = useTranscode ? 'block' : 'none';
     if (useTranscode) {
       if (compatibilityTransport === 'hls') {
+        hlsStartupRetryCount = 0;
         const warning = document.getElementById('playback-warning');
         if (warning) warning.style.display = 'none';
         player.src({ src: buildHlsUrl(media), type: 'application/x-mpegURL' });
+        scheduleHlsStartupRetry(media);
         updateStitchedProgress();
         updateCurrentClipWatermark();
         return;
@@ -410,6 +517,7 @@
 
       const startSeconds = (stitchedPlayback && compatibilityMode && compatibilityTransport === 'transcode') ? stitchedSeekOffset : 0;
       player.src({ src: buildTranscodeUrl(media, startSeconds), type: 'video/mp4' });
+      scheduleTranscodeStartupFallback(media);
       syncCompatibilityDurationUi();
       return;
     }
