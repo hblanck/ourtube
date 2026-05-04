@@ -28,6 +28,7 @@ function initDb() {
       name TEXT NOT NULL,
       path TEXT NOT NULL,
       type TEXT NOT NULL DEFAULT 'both',
+      visibility TEXT NOT NULL DEFAULT 'all',
       stitch_directories INTEGER NOT NULL DEFAULT 0,
       enabled INTEGER NOT NULL DEFAULT 1,
       scan_interval INTEGER NOT NULL DEFAULT 3600,
@@ -62,6 +63,7 @@ function initDb() {
       modified_at TEXT,
       indexed_at TEXT NOT NULL DEFAULT (datetime('now')),
       thumbnail_path TEXT,
+      visibility TEXT NOT NULL DEFAULT 'all',
       year INTEGER,
       location TEXT,
       latitude REAL,
@@ -86,6 +88,25 @@ function initDb() {
       value TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS admin_keys (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      key_hash TEXT NOT NULL,
+      key_salt TEXT NOT NULL,
+      key_prefix TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      last_used_at TEXT,
+      revoked_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS admin_audit_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      action TEXT NOT NULL,
+      actor_key_id INTEGER REFERENCES admin_keys(id) ON DELETE SET NULL,
+      metadata TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS skipped_files (
       file_path TEXT PRIMARY KEY,
       source_location_id INTEGER REFERENCES source_locations(id) ON DELETE SET NULL,
@@ -103,9 +124,13 @@ function initDb() {
     CREATE INDEX IF NOT EXISTS idx_faces_person_name ON faces(person_name);
     CREATE INDEX IF NOT EXISTS idx_skipped_files_last_seen ON skipped_files(last_seen_at);
     CREATE INDEX IF NOT EXISTS idx_location_entries_location_id ON source_location_entries(source_location_id);
+    CREATE INDEX IF NOT EXISTS idx_admin_keys_revoked_at ON admin_keys(revoked_at);
+    CREATE INDEX IF NOT EXISTS idx_admin_audit_created_at ON admin_audit_log(created_at);
   `);
 
   ensureColumn('source_locations', 'stitch_directories', 'INTEGER NOT NULL DEFAULT 0');
+  ensureColumn('source_locations', 'visibility', "TEXT NOT NULL DEFAULT 'all'");
+  ensureColumn('media', 'visibility', "TEXT NOT NULL DEFAULT 'all'");
 
   // Insert default settings if not present
   const insertSetting = db.prepare(

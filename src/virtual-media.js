@@ -34,6 +34,17 @@ function parseTags(value) {
   }
 }
 
+function getUnifiedTextValue(rows, fieldName) {
+  const values = new Set();
+  for (const row of rows) {
+    const raw = String(row?.[fieldName] || '').trim();
+    if (!raw) continue;
+    values.add(raw);
+    if (values.size > 1) return '';
+  }
+  return values.size === 1 ? [...values][0] : '';
+}
+
 function getTimestamp(value, fallback) {
   const timestamp = Date.parse(value || '');
   return Number.isFinite(timestamp) ? timestamp : fallback;
@@ -122,15 +133,29 @@ function buildVirtualMediaItem(rows, options = {}) {
     if (!latest) return row.indexed_at || null;
     return getTimestamp(row.indexed_at, 0) > getTimestamp(latest, 0) ? row.indexed_at : latest;
   }, null);
+  const unifiedFriendlyName = getUnifiedTextValue(orderedRows, 'friendly_name');
+  const unifiedDescription = getUnifiedTextValue(orderedRows, 'description');
   const mergedLocation = orderedRows.find(row => row.location)?.location || null;
   const mergedYear = orderedRows.find(row => row.year)?.year || null;
+
+  // Visibility: use the most restrictive visibility across all segments
+  // none > admin > all
+  const VISIBILITY_RANK = { none: 2, admin: 1, all: 0 };
+  const mergedVisibility = orderedRows.reduce((worst, row) => {
+    const v = String(row.visibility || row.media_visibility || 'all').toLowerCase();
+    return (VISIBILITY_RANK[v] ?? 0) > (VISIBILITY_RANK[worst] ?? 0) ? v : worst;
+  }, 'all');
+  // Source visibility is shared across all segments (same source location)
+  const mergedSourceVisibility = String(
+    firstRow.source_visibility || firstRow.source_location_visibility || 'all'
+  ).toLowerCase();
 
   const item = {
     id: buildVirtualMediaId(firstRow.source_location_id, groupPath),
     type: 'video',
     file_name: `${nameBase}.mp4`,
-    friendly_name: nameBase.replace(/[_.-]/g, ' '),
-    description: `${orderedRows.length} stitched clip${orderedRows.length === 1 ? '' : 's'}`,
+    friendly_name: unifiedFriendlyName || nameBase.replace(/[_.-]/g, ' '),
+    description: unifiedDescription || `${orderedRows.length} stitched clip${orderedRows.length === 1 ? '' : 's'}`,
     duration: orderedRows.reduce((total, row) => total + (Number(row.duration) || 0), 0),
     width: firstRow.width || null,
     height: firstRow.height || null,
@@ -155,7 +180,9 @@ function buildVirtualMediaItem(rows, options = {}) {
     indexed_at: latestIndexedAt,
     is_virtual: 1,
     segment_count: orderedRows.length,
-    faces: []
+    faces: [],
+    visibility: mergedVisibility,
+    source_visibility: mergedSourceVisibility
   };
 
   if (options.includeSegments) {

@@ -47,6 +47,8 @@
         <div class="media-title-row">
           <h1 id="media-title" class="media-title">Loading…</h1>
           <span id="stitched-badge" class="watch-badge" style="display:none">Stitched Video</span>
+          <span id="watch-visibility-badge" class="watch-badge watch-badge-admin-only" style="display:none">Admin Only</span>
+          <a id="watch-admin-edit" class="watch-badge" style="display:none" href="/admin/?tab=library">Edit Metadata</a>
         </div>
         <div class="media-meta" id="media-meta"></div>
         <div class="media-desc" id="media-desc"></div>
@@ -64,6 +66,7 @@
   </div>
 
   <script src="https://vjs.zencdn.net/8.10.0/video.min.js"></script>
+  <script src="/js/admin-mode.js"></script>
   <script src="/js/watch.js"></script>
 </body>
 </html>

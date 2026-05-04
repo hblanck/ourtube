@@ -10,6 +10,7 @@ A YouTube-like video and photo manager for NAS/SMB libraries, designed for home 
 - 🔍 **Metadata extraction** – ffprobe (video duration, codec, resolution), EXIF/GPS (photo location & date)
 - 👤 **Face detection** (optional) using face-api.js – identify people in photos/video thumbnails
 - 🗂 **Admin interface** at `/admin/` – manage source locations, edit metadata, trigger scans
+- 🔐 **Key-based admin mode** – end users stay unauthenticated while admin tasks require unlocking with an admin key
 - 🐳 **Docker Compose** ready, image pushed to GHCR.io on every merge to `main`
 - 🔒 **Read-only source files** – OurTube never writes to your media library
 
@@ -67,6 +68,36 @@ Open **http://localhost:3000/admin/** to:
 - **Media Library** – Edit display names, descriptions, year, location, tags, and manually add face/person labels
 - **Settings** – Configure scan interval, thumbnail size, face detection toggle
 - **Dashboard** – View stats and trigger a full scan
+
+Visibility controls are available for both media items and source locations:
+- `all` – visible to everyone
+- `admin` – visible only when admin mode is unlocked
+- `none` – hidden from normal browsing/playback (still manageable by admins in the Admin UI)
+
+Admin bulk tools:
+- Media Library supports multi-select + bulk visibility updates for selected rows, plus quick visibility filters (All/Admin only/None).
+- Source Locations supports applying a visibility value to all indexed media in a collection, with an option to also update the collection visibility itself.
+- Settings includes a Recent Admin Activity table showing audit-log entries for bulk visibility actions.
+
+### Admin Key Bootstrap
+
+Admin APIs are protected by key-based authentication. End-user browsing and playback stay open.
+
+Create the first key from CLI:
+
+```bash
+npm run admin:key:create
+```
+
+When running in Docker:
+
+```bash
+docker compose exec ourtube npm run admin:key:create
+```
+
+The command prints a key once. Use the **🔐 Admin** button in the main UI header to unlock admin mode.
+
+After unlocking, manage keys in **Admin → Settings → Admin Keys** (create, rename, revoke).
 
 ## Environment Variables
 

@@ -5,7 +5,8 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "nodemon src/server.js"
+    "dev": "nodemon src/server.js",
+    "admin:key:create": "node src/admin-key-cli.js create"
   },
   "dependencies": {
     "better-sqlite3": "^9.4.3",

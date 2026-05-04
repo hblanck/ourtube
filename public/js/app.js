@@ -7,8 +7,12 @@
   let page = 1;
   let loading = false;
   let hasMore = true;
+  let adminModeEnabled = false;
   let currentFilters = { type: FORCE_TYPE || '', year: '', location: '', source_location_id: '', sort: 'indexed_at' };
   const SIDEBAR_STATE_KEY = 'ourtube.sidebar.collapsed';
+  let yearFilterLoadVersion = 0;
+  let locationFilterLoadVersion = 0;
+  let sourceLocationFilterLoadVersion = 0;
   const sourceLocationLabels = {};
   const sortLabels = {
     indexed_at: 'Date Added',
@@ -18,6 +22,21 @@
     duration: 'Duration',
     size: 'Size'
   };
+
+  let mediaTooltipEl = null;
+  let activeTooltipCard = null;
+  let tooltipShowTimer = null;
+  let pendingTooltipCard = null;
+  let pendingTooltipPoint = null;
+  const TOOLTIP_HOVER_DELAY_MS = 180;
+
+  let previewStartTimer = null;
+  let pendingPreviewCard = null;
+  let activePreviewCard = null;
+  let activePreviewStopTimer = null;
+  const VIDEO_PREVIEW_HOVER_DELAY_MS = 220;
+  const VIDEO_PREVIEW_DURATION_MS = 7000;
+  const VIDEO_PREVIEW_START_SECONDS = 1.5;
 
   // ── Utility ──────────────────────────────────────────────
   function escHtml(str) {
@@ -44,6 +63,323 @@
     return mb.toFixed(0) + ' MB';
   }
 
+  function buildCardTooltip(item, isVideo, collectionName) {
+    const lines = [];
+    const displayName = String(item.friendly_name || item.file_name || 'Untitled');
+    const description = String(item.description || '').trim();
+    const tags = Array.isArray(item.tags) ? item.tags.filter(Boolean).map(String) : [];
+
+    lines.push(displayName);
+    lines.push('');
+    lines.push(`Description: ${description || 'No description available.'}`);
+    lines.push('');
+    lines.push('Metadata:');
+    lines.push(`- Type: ${isVideo ? 'Video' : 'Photo'}`);
+    if (item.year) lines.push(`- Year: ${item.year}`);
+    if (item.location) lines.push(`- Location: ${item.location}`);
+    if (item.width && item.height) lines.push(`- Resolution: ${item.width}x${item.height}`);
+    if (item.duration && isVideo) lines.push(`- Duration: ${fmtDur(item.duration)}`);
+    if (item.size) lines.push(`- Size: ${fmtSize(item.size)}`);
+    if (collectionName) lines.push(`- Collection: ${collectionName}`);
+    if (tags.length) lines.push(`- Tags: ${tags.join(', ')}`);
+
+    if (item.is_virtual) {
+      lines.push('');
+      lines.push(`Stitched Video: ${item.segment_count || 0} smaller videos stitched together.`);
+      lines.push('Playback sequence may be out of order.');
+    }
+
+    return lines.join('\n');
+  }
+
+  function ensureMediaTooltip() {
+    if (mediaTooltipEl) return mediaTooltipEl;
+    const el = document.createElement('div');
+    el.id = 'media-hover-tooltip';
+    el.className = 'media-hover-tooltip';
+    el.setAttribute('role', 'tooltip');
+    document.body.appendChild(el);
+    mediaTooltipEl = el;
+    return mediaTooltipEl;
+  }
+
+  function hideMediaTooltip() {
+    if (tooltipShowTimer) {
+      clearTimeout(tooltipShowTimer);
+      tooltipShowTimer = null;
+    }
+    pendingTooltipCard = null;
+    pendingTooltipPoint = null;
+    if (!mediaTooltipEl) return;
+    mediaTooltipEl.classList.remove('visible');
+    mediaTooltipEl.textContent = '';
+    activeTooltipCard = null;
+  }
+
+  function positionTooltipNearPointer(event) {
+    if (!mediaTooltipEl) return;
+    const pad = 12;
+    const offset = 14;
+    const rect = mediaTooltipEl.getBoundingClientRect();
+    const maxX = Math.max(pad, window.innerWidth - rect.width - pad);
+    const maxY = Math.max(pad, window.innerHeight - rect.height - pad);
+    const x = Math.min(maxX, Math.max(pad, event.clientX + offset));
+    const y = Math.min(maxY, Math.max(pad, event.clientY + offset));
+    mediaTooltipEl.style.left = `${x}px`;
+    mediaTooltipEl.style.top = `${y}px`;
+  }
+
+  function positionTooltipNearCard(card) {
+    if (!mediaTooltipEl || !card) return;
+    const pad = 12;
+    const rect = card.getBoundingClientRect();
+    const tipRect = mediaTooltipEl.getBoundingClientRect();
+    const centeredX = rect.left + (rect.width / 2) - (tipRect.width / 2);
+    const aboveY = rect.top - tipRect.height - 10;
+    const maxX = Math.max(pad, window.innerWidth - tipRect.width - pad);
+    const maxY = Math.max(pad, window.innerHeight - tipRect.height - pad);
+    const x = Math.min(maxX, Math.max(pad, centeredX));
+    const y = Math.min(maxY, Math.max(pad, aboveY));
+    mediaTooltipEl.style.left = `${x}px`;
+    mediaTooltipEl.style.top = `${y}px`;
+  }
+
+  function showMediaTooltip(card, event) {
+    if (!card) return;
+    const tooltipText = card.dataset.tooltip;
+    if (!tooltipText) return;
+
+    const el = ensureMediaTooltip();
+    activeTooltipCard = card;
+    el.textContent = tooltipText;
+    el.classList.add('visible');
+    if (event && Number.isFinite(event.clientX) && Number.isFinite(event.clientY)) {
+      positionTooltipNearPointer(event);
+    } else {
+      positionTooltipNearCard(card);
+    }
+  }
+
+  function initMediaCardTooltips() {
+    ensureMediaTooltip();
+
+    document.addEventListener('mouseover', event => {
+      const card = event.target.closest('.media-card');
+      if (!card) return;
+      const from = event.relatedTarget;
+      if (from && card.contains(from)) return;
+
+      if (tooltipShowTimer) clearTimeout(tooltipShowTimer);
+      pendingTooltipCard = card;
+      pendingTooltipPoint = { clientX: event.clientX, clientY: event.clientY };
+      tooltipShowTimer = setTimeout(() => {
+        tooltipShowTimer = null;
+        if (!pendingTooltipCard) return;
+        showMediaTooltip(pendingTooltipCard, pendingTooltipPoint);
+        pendingTooltipCard = null;
+        pendingTooltipPoint = null;
+      }, TOOLTIP_HOVER_DELAY_MS);
+    });
+
+    document.addEventListener('mousemove', event => {
+      if (pendingTooltipCard) {
+        pendingTooltipPoint = { clientX: event.clientX, clientY: event.clientY };
+      }
+      if (!activeTooltipCard || !mediaTooltipEl || !mediaTooltipEl.classList.contains('visible')) return;
+      positionTooltipNearPointer(event);
+    });
+
+    document.addEventListener('mouseout', event => {
+      if (pendingTooltipCard) {
+        const leavingPendingCard = event.target && pendingTooltipCard.contains(event.target);
+        const enteringPendingCard = event.relatedTarget && pendingTooltipCard.contains(event.relatedTarget);
+        if (leavingPendingCard && !enteringPendingCard) {
+          if (tooltipShowTimer) clearTimeout(tooltipShowTimer);
+          tooltipShowTimer = null;
+          pendingTooltipCard = null;
+          pendingTooltipPoint = null;
+        }
+      }
+
+      if (!activeTooltipCard) return;
+      const next = event.relatedTarget;
+      if (next && activeTooltipCard.contains(next)) return;
+      hideMediaTooltip();
+    });
+
+    document.addEventListener('focusin', event => {
+      const card = event.target.closest('.media-card');
+      if (!card) return;
+      if (tooltipShowTimer) clearTimeout(tooltipShowTimer);
+      tooltipShowTimer = null;
+      pendingTooltipCard = null;
+      pendingTooltipPoint = null;
+      showMediaTooltip(card);
+    });
+
+    document.addEventListener('focusout', event => {
+      if (!activeTooltipCard) return;
+      const next = event.relatedTarget;
+      if (next && activeTooltipCard.contains(next)) return;
+      hideMediaTooltip();
+    });
+
+    window.addEventListener('scroll', () => {
+      if (!activeTooltipCard) return;
+      positionTooltipNearCard(activeTooltipCard);
+    }, { passive: true });
+
+    window.addEventListener('resize', () => {
+      if (!activeTooltipCard) return;
+      positionTooltipNearCard(activeTooltipCard);
+    });
+  }
+
+  function clearPreviewStartTimer() {
+    if (previewStartTimer) {
+      clearTimeout(previewStartTimer);
+      previewStartTimer = null;
+    }
+  }
+
+  function clearActivePreviewStopTimer() {
+    if (activePreviewStopTimer) {
+      clearTimeout(activePreviewStopTimer);
+      activePreviewStopTimer = null;
+    }
+  }
+
+  function stopActivePreview() {
+    clearActivePreviewStopTimer();
+    if (!activePreviewCard) return;
+
+    const video = activePreviewCard.querySelector('.card-preview-video');
+    if (video) {
+      try {
+        video.pause();
+        video.currentTime = 0;
+      } catch { /* ignore */ }
+    }
+
+    activePreviewCard.classList.remove('is-previewing');
+    activePreviewCard.classList.remove('is-preview-loading');
+    activePreviewCard = null;
+  }
+
+  function getPreviewUrl(item) {
+    const encodedId = encodeURIComponent(item.id);
+    if (item.is_virtual) return `/stream/${encodedId}/transcode`;
+    return `/stream/${encodedId}`;
+  }
+
+  function ensureCardPreviewVideo(card) {
+    if (!card) return null;
+    const previewUrl = card.dataset.previewUrl;
+    if (!previewUrl) return null;
+
+    const video = card.querySelector('.card-preview-video');
+    if (!video) return null;
+
+    if (!video.src) {
+      video.src = previewUrl;
+      video.load();
+    }
+
+    return video;
+  }
+
+  async function startCardPreview(card) {
+    if (!card || !card.dataset.previewUrl) return;
+
+    if (activePreviewCard && activePreviewCard !== card) {
+      stopActivePreview();
+    }
+
+    const video = ensureCardPreviewVideo(card);
+    if (!video) return;
+
+    activePreviewCard = card;
+    card.classList.add('is-preview-loading');
+
+    try {
+      const setStartOffset = () => {
+        if (video.duration && Number.isFinite(video.duration) && video.duration > VIDEO_PREVIEW_START_SECONDS + 0.3) {
+          try { video.currentTime = VIDEO_PREVIEW_START_SECONDS; } catch { /* ignore */ }
+        }
+      };
+
+      if (video.readyState >= 1) {
+        setStartOffset();
+      } else {
+        video.addEventListener('loadedmetadata', setStartOffset, { once: true });
+      }
+
+      await video.play();
+      card.classList.remove('is-preview-loading');
+      card.classList.add('is-previewing');
+
+      clearActivePreviewStopTimer();
+      activePreviewStopTimer = setTimeout(() => {
+        if (activePreviewCard === card) stopActivePreview();
+      }, VIDEO_PREVIEW_DURATION_MS);
+    } catch {
+      card.classList.remove('is-preview-loading');
+      if (activePreviewCard === card) activePreviewCard = null;
+    }
+  }
+
+  function initMediaCardPreviews() {
+    document.addEventListener('mouseover', event => {
+      const card = event.target.closest('.media-card');
+      if (!card || !card.dataset.previewUrl) return;
+      const from = event.relatedTarget;
+      if (from && card.contains(from)) return;
+
+      clearPreviewStartTimer();
+      pendingPreviewCard = card;
+      previewStartTimer = setTimeout(() => {
+        previewStartTimer = null;
+        if (!pendingPreviewCard) return;
+        const nextCard = pendingPreviewCard;
+        pendingPreviewCard = null;
+        startCardPreview(nextCard);
+      }, VIDEO_PREVIEW_HOVER_DELAY_MS);
+    });
+
+    document.addEventListener('mouseout', event => {
+      const card = event.target.closest('.media-card');
+      if (!card || !card.dataset.previewUrl) return;
+      const next = event.relatedTarget;
+      if (next && card.contains(next)) return;
+
+      if (pendingPreviewCard === card) {
+        pendingPreviewCard = null;
+        clearPreviewStartTimer();
+      }
+      if (activePreviewCard === card) stopActivePreview();
+    });
+
+    document.addEventListener('click', () => {
+      pendingPreviewCard = null;
+      clearPreviewStartTimer();
+      stopActivePreview();
+    });
+
+    window.addEventListener('scroll', () => {
+      pendingPreviewCard = null;
+      clearPreviewStartTimer();
+      stopActivePreview();
+    }, { passive: true });
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        pendingPreviewCard = null;
+        clearPreviewStartTimer();
+        stopActivePreview();
+      }
+    });
+  }
+
   function setRadioValue(name, value) {
     document.querySelectorAll(`input[name="${name}"]`).forEach(input => {
       input.checked = input.value === value;
@@ -52,9 +388,15 @@
 
   function syncFilterControls() {
     setRadioValue('type', currentFilters.type);
-    setRadioValue('year', currentFilters.year);
-    setRadioValue('location', currentFilters.location);
     setRadioValue('source_location_id', currentFilters.source_location_id);
+
+    const yearSel = document.getElementById('year-filter');
+    if (yearSel && yearSel.tagName === 'SELECT') yearSel.value = currentFilters.year;
+    else setRadioValue('year', currentFilters.year);
+
+    const locSel = document.getElementById('location-filter');
+    if (locSel && locSel.tagName === 'SELECT') locSel.value = currentFilters.location;
+    else setRadioValue('location', currentFilters.location);
 
     const sortSel = document.getElementById('sort-select');
     if (sortSel) sortSel.value = currentFilters.sort;
@@ -178,19 +520,30 @@
 
     const thumb = `/thumbnail/${item.thumbnail_media_id || item.id}`;
     const isVideo = item.type === 'video';
+    const previewUrl = isVideo ? getPreviewUrl(item) : '';
     const name = escHtml(item.friendly_name || item.file_name);
 
     const collectionName = !currentFilters.source_location_id && item.source_location_id
       ? (sourceLocationLabels[String(item.source_location_id)] || null)
       : null;
+    const tooltipText = buildCardTooltip(item, isVideo, collectionName);
+    card.dataset.tooltip = tooltipText;
+    card.setAttribute('aria-label', tooltipText);
+    if (previewUrl) card.dataset.previewUrl = previewUrl;
+    const isAdminOnlyVisible = adminModeEnabled && (item.visibility === 'admin' || item.source_visibility === 'admin');
+    const leftBadges = [];
+    if (isAdminOnlyVisible) leftBadges.push('<span class="card-visibility-badge">Admin Only</span>');
+    if (item.is_virtual) leftBadges.push('<span class="card-collection-badge card-collection-badge--stitch">Stitched Video</span>');
 
     card.innerHTML = `
       <div class="card-thumb-wrap">
         <img class="card-thumb" src="${thumb}" alt="${name}" loading="lazy"
              onerror="this.src='/img/no-thumb.svg'" />
+        ${isVideo ? '<video class="card-preview-video" muted playsinline preload="metadata" aria-hidden="true"></video>' : ''}
         ${isVideo && item.duration ? `<span class="card-duration">${fmtDur(item.duration)}</span>` : ''}
         <span class="card-type-badge">${isVideo ? '🎬' : '📷'}</span>
-        ${item.is_virtual ? `<span class="card-collection-badge card-collection-badge--stitch">Stitched Video</span>` : ''}
+        ${leftBadges.length ? `<div class="card-left-badges">${leftBadges.join('')}</div>` : ''}
+        ${adminModeEnabled ? `<a class="card-admin-link" href="/admin/?tab=library&edit=${encodeURIComponent(item.id)}" title="Edit in admin">Edit</a>` : ''}
         ${item.is_virtual ? `<span class="card-collection-badge">${item.segment_count} clips</span>` : ''}
         ${collectionName ? `<span class="card-collection-badge">${escHtml(collectionName)}</span>` : ''}
       </div>
@@ -301,89 +654,145 @@
 
   // ── Filters ───────────────────────────────────────────────
   async function loadYearFilter() {
-    const container = document.getElementById('year-filter');
-    if (!container) return;
+    const sel = document.getElementById('year-filter');
+    if (!sel || sel.tagName !== 'SELECT') return false;
+    const loadVersion = ++yearFilterLoadVersion;
+
+    const previousSelection = String(currentFilters.year || '');
+    const options = ['<option value="">All Years</option>'];
+
+    const typeForFilter = FORCE_TYPE || currentFilters.type;
+    const params = new URLSearchParams();
+    if (typeForFilter) params.set('type', typeForFilter);
+
+    let stillAvailable = !previousSelection;
     try {
-      const res = await fetch('/api/years');
+      const url = '/api/years' + (params.toString() ? `?${params.toString()}` : '');
+      const res = await fetch(url);
       const years = await res.json();
       years.forEach(({ year }) => {
-        const label = document.createElement('label');
-        const input = document.createElement('input');
-        input.type = 'radio';
-        input.name = 'year';
-        input.value = String(year);
-        label.appendChild(input);
-        label.appendChild(document.createTextNode(` ${year}`));
-        container.appendChild(label);
+        const val = String(year);
+        if (val === previousSelection) stillAvailable = true;
+        options.push(`<option value="${escHtml(val)}">${escHtml(year)}</option>`);
       });
     } catch { /* ignore */ }
+
+    if (loadVersion !== yearFilterLoadVersion) return false;
+
+    sel.innerHTML = options.join('');
+
+    if (!stillAvailable) currentFilters.year = '';
+    sel.value = currentFilters.year;
+    return !stillAvailable;
   }
-        loadFeatured();
 
   async function loadLocationFilter() {
-    const container = document.getElementById('location-filter');
-    if (!container) return;
+    const sel = document.getElementById('location-filter');
+    if (!sel || sel.tagName !== 'SELECT') return false;
+    const loadVersion = ++locationFilterLoadVersion;
+
+    const previousSelection = String(currentFilters.location || '');
+    const options = ['<option value="">All Locations</option>'];
+
+    const typeForFilter = FORCE_TYPE || currentFilters.type;
+    const params = new URLSearchParams();
+    if (typeForFilter) params.set('type', typeForFilter);
+
+    let stillAvailable = !previousSelection;
     try {
-      const res = await fetch('/api/locations');
+      const url = '/api/locations' + (params.toString() ? `?${params.toString()}` : '');
+      const res = await fetch(url);
       const locs = await res.json();
-      locs.slice(0, 20).forEach(({ location }) => {
-        const label = document.createElement('label');
-        const input = document.createElement('input');
-        input.type = 'radio';
-        input.name = 'location';
-        input.value = String(location);
-        label.appendChild(input);
-        label.appendChild(document.createTextNode(` ${location}`));
-        container.appendChild(label);
+      locs.slice(0, 50).forEach(({ location }) => {
+        if (location === previousSelection) stillAvailable = true;
+        options.push(`<option value="${escHtml(location)}">${escHtml(location)}</option>`);
       });
     } catch { /* ignore */ }
+
+    if (loadVersion !== locationFilterLoadVersion) return false;
+
+    sel.innerHTML = options.join('');
+
+    if (!stillAvailable) currentFilters.location = '';
+    sel.value = currentFilters.location;
+    return !stillAvailable;
   }
 
   async function loadSourceLocationFilter() {
     const container = document.getElementById('source-location-filter');
-      loadFeatured();
-    if (!container) return;
+    if (!container) return false;
+    const loadVersion = ++sourceLocationFilterLoadVersion;
+
+    const previousSelection = String(currentFilters.source_location_id || '');
+
+    const typeForFilter = FORCE_TYPE || currentFilters.type;
+    const params = new URLSearchParams();
+    if (typeForFilter) params.set('type', typeForFilter);
+
+    let stillAvailable = !previousSelection;
+    let rows = [];
     try {
-      const res = await fetch('/api/source-locations');
-      const rows = await res.json();
-      rows.forEach(({ id, name }) => {
-        sourceLocationLabels[String(id)] = name;
-        const label = document.createElement('label');
-        const input = document.createElement('input');
-        input.type = 'radio';
-        input.name = 'source_location_id';
-        input.value = String(id);
-        label.appendChild(input);
-        label.appendChild(document.createTextNode(` ${name}`));
-        container.appendChild(label);
-      });
+      const url = '/api/source-locations' + (params.toString() ? `?${params.toString()}` : '');
+      const res = await fetch(url);
+      rows = await res.json();
     } catch { /* ignore */ }
+
+    if (loadVersion !== sourceLocationFilterLoadVersion) return false;
+
+    const seenSourceIds = new Set();
+    const labelsById = {};
+    const fragment = document.createDocumentFragment();
+
+    const allLabel = document.createElement('label');
+    const allInput = document.createElement('input');
+    allInput.type = 'radio';
+    allInput.name = 'source_location_id';
+    allInput.value = '';
+    allInput.checked = true;
+    allLabel.appendChild(allInput);
+    allLabel.appendChild(document.createTextNode(' All Collections'));
+    fragment.appendChild(allLabel);
+
+    rows.forEach(({ id, name }) => {
+      const idStr = String(id);
+      if (seenSourceIds.has(idStr)) return;
+      seenSourceIds.add(idStr);
+      labelsById[idStr] = name;
+      if (idStr === previousSelection) stillAvailable = true;
+      const label = document.createElement('label');
+      const input = document.createElement('input');
+      input.type = 'radio';
+      input.name = 'source_location_id';
+      input.value = idStr;
+      label.appendChild(input);
+      label.appendChild(document.createTextNode(` ${name}`));
+      fragment.appendChild(label);
+    });
+
+    container.replaceChildren(fragment);
+    Object.keys(sourceLocationLabels).forEach(key => delete sourceLocationLabels[key]);
+    Object.assign(sourceLocationLabels, labelsById);
+
+    if (!stillAvailable) {
+      currentFilters.source_location_id = '';
+    }
+    syncFilterControls();
+    return !stillAvailable;
   }
 
   function bindFilters() {
     document.querySelectorAll('input[name="type"]').forEach(el => {
-      el.addEventListener('change', () => {
+      el.addEventListener('change', async () => {
         currentFilters.type = FORCE_TYPE || el.value;
+        await Promise.all([loadYearFilter(), loadLocationFilter(), loadSourceLocationFilter()]);
         renderActiveFilters();
         loadFeatured();
         loadMedia(true);
       });
     });
 
-    // Use event delegation for dynamically loaded year/location radios.
+    // Use event delegation for dynamically loaded collection radios.
     document.addEventListener('change', e => {
-      if (e.target.name === 'year') {
-        currentFilters.year = e.target.value;
-        renderActiveFilters();
-        loadFeatured();
-        loadMedia(true);
-      }
-      if (e.target.name === 'location') {
-        currentFilters.location = e.target.value;
-        renderActiveFilters();
-        loadFeatured();
-        loadMedia(true);
-      }
       if (e.target.name === 'source_location_id') {
         currentFilters.source_location_id = e.target.value;
         renderActiveFilters();
@@ -391,6 +800,26 @@
         loadMedia(true);
       }
     });
+
+    const yearSel = document.getElementById('year-filter');
+    if (yearSel) {
+      yearSel.addEventListener('change', () => {
+        currentFilters.year = yearSel.value;
+        renderActiveFilters();
+        loadFeatured();
+        loadMedia(true);
+      });
+    }
+
+    const locSel = document.getElementById('location-filter');
+    if (locSel) {
+      locSel.addEventListener('change', () => {
+        currentFilters.location = locSel.value;
+        renderActiveFilters();
+        loadFeatured();
+        loadMedia(true);
+      });
+    }
 
     const sortSel = document.getElementById('sort-select');
     if (sortSel) {
@@ -408,8 +837,22 @@
 
   // ── Init ──────────────────────────────────────────────────
   async function init() {
+    const adminStatus = window.OurTubeAdminMode?.status?.();
+    adminModeEnabled = !!adminStatus?.authenticated;
+
+    window.addEventListener('ourtube-admin-mode-changed', async event => {
+      const nextEnabled = !!event.detail?.authenticated;
+      if (nextEnabled === adminModeEnabled) return;
+      adminModeEnabled = nextEnabled;
+      await Promise.all([loadYearFilter(), loadLocationFilter(), loadSourceLocationFilter()]);
+      loadMedia(true);
+      loadFeatured();
+    });
+
     initSidebarToggle();
     bindFilters();
+    initMediaCardTooltips();
+    initMediaCardPreviews();
     await Promise.all([loadFeatured(), loadStats(), loadYearFilter(), loadLocationFilter(), loadSourceLocationFilter()]);
     syncFilterControls();
     renderActiveFilters();

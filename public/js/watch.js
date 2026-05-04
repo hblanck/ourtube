@@ -16,6 +16,8 @@
   let expectedDuration = 0;
   let stitchedPlayback = false;
   let isSeekingStitched = false;
+  let adminModeEnabled = false;
+  let currentMedia = null;
 
   function escHtml(str) {
     return String(str || '')
@@ -271,6 +273,14 @@
 
     const stitchedBadge = document.getElementById('stitched-badge');
     if (stitchedBadge) stitchedBadge.style.display = media.is_virtual ? 'inline-flex' : 'none';
+    const visibilityBadge = document.getElementById('watch-visibility-badge');
+    const mediaIsAdminOnly = media.visibility === 'admin' || media.source_visibility === 'admin';
+    if (visibilityBadge) visibilityBadge.style.display = adminModeEnabled && mediaIsAdminOnly ? 'inline-flex' : 'none';
+    const editLink = document.getElementById('watch-admin-edit');
+    if (editLink) {
+      editLink.href = `/admin/?tab=library&edit=${encodeURIComponent(media.id)}`;
+      editLink.style.display = adminModeEnabled ? 'inline-flex' : 'none';
+    }
 
     const metaEl = document.getElementById('media-meta');
     const parts = [];
@@ -324,6 +334,7 @@
                  loading="lazy" onerror="this.src='/img/no-thumb.svg'" />
             ${item.duration ? `<span class="related-duration">${fmtDur(item.duration)}</span>` : ''}
             ${item.is_virtual ? '<span class="related-badge">Stitched</span>' : ''}
+            ${adminModeEnabled && (item.visibility === 'admin' || item.source_visibility === 'admin') ? '<span class="related-badge related-badge-admin-only">Admin Only</span>' : ''}
           </div>
           <div class="related-info">
             <div class="related-title">${escHtml(item.friendly_name || item.file_name)}</div>
@@ -337,10 +348,24 @@
   }
 
   async function init() {
+    const adminStatus = window.OurTubeAdminMode?.status?.();
+    adminModeEnabled = !!adminStatus?.authenticated;
+
+    window.addEventListener('ourtube-admin-mode-changed', event => {
+      adminModeEnabled = !!event.detail?.authenticated;
+      if (currentMedia) {
+        renderMeta(currentMedia);
+        const grid = document.getElementById('related-grid');
+        if (grid) grid.innerHTML = '';
+        loadRelated(currentMedia);
+      }
+    });
+
     try {
       const res = await fetch(`/api/media/${mediaId}`);
       if (!res.ok) throw new Error('Not found');
       const media = await res.json();
+      currentMedia = media;
 
       renderMeta(media);
 
