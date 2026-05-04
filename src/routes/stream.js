@@ -10,6 +10,7 @@ const { PassThrough } = require('stream');
 const { getDb } = require('../db');
 const { upsertSession, touchSession, addBytes } = require('../sessions');
 const { getStitchGroupPath, isVirtualMediaId, parseVirtualMediaId, sortSegmentRows } = require('../virtual-media');
+const { canAccessFromRow } = require('../visibility');
 
 const DATA_DIR = process.env.DATA_DIR || '/data';
 const router = express.Router();
@@ -37,12 +38,13 @@ function cleanupFile(filePath) {
   }
 }
 
-function getVirtualSegmentRows(db, mediaId) {
+function getVirtualSegmentRows(db, mediaId, req) {
   const virtualRef = parseVirtualMediaId(mediaId);
   if (!virtualRef) return null;
 
   const rows = db.prepare(
-    `SELECT m.id, m.type, m.file_path, m.file_name, m.duration, m.created_at, m.modified_at,
+        `SELECT m.id, m.type, m.file_path, m.file_name, m.duration, m.created_at, m.modified_at,
+          m.visibility AS media_visibility, sl.visibility AS source_visibility,
             m.source_location_id, sl.stitch_directories,
             (
               SELECT sle.entry_path
@@ -71,7 +73,9 @@ function getVirtualSegmentRows(db, mediaId) {
      WHERE m.source_location_id = ? AND m.type = 'video'`
   ).all(virtualRef.sourceLocationId);
 
-  const segmentRows = rows.filter(row => getStitchGroupPath(row) === virtualRef.groupPath);
+  const segmentRows = rows
+    .filter(row => canAccessFromRow(row, req))
+    .filter(row => getStitchGroupPath(row) === virtualRef.groupPath);
   if (!segmentRows.length) return null;
   return sortSegmentRows(segmentRows);
 }
@@ -106,7 +110,7 @@ function getStreamMimeType(row, filePath) {
 // GET /stream/:id/transcode - browser-compatible MP4 fallback stream
 router.get('/:id/transcode', (req, res) => {
   const db = getDb();
-  const virtualSegments = getVirtualSegmentRows(db, req.params.id);
+  const virtualSegments = getVirtualSegmentRows(db, req.params.id, req);
 
   if (virtualSegments) {
     const concatListPath = createConcatListFile(virtualSegments.map(row => row.file_path));
@@ -167,8 +171,14 @@ router.get('/:id/transcode', (req, res) => {
     return;
   }
 
-  const row = db.prepare('SELECT * FROM media WHERE id = ?').get(req.params.id);
+  const row = db.prepare(
+    `SELECT m.*, m.visibility AS media_visibility, sl.visibility AS source_visibility
+       FROM media m
+       LEFT JOIN source_locations sl ON sl.id = m.source_location_id
+      WHERE m.id = ?`
+  ).get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Not found' });
+  if (!canAccessFromRow(row, req)) return res.status(404).json({ error: 'Not found' });
   if (row.type !== 'video') return res.status(400).json({ error: 'Not a video' });
 
   const filePath = row.file_path;
@@ -229,8 +239,14 @@ router.get('/:id', (req, res) => {
     return res.status(400).json({ error: 'Virtual videos require compatibility streaming' });
   }
 
-  const row = db.prepare('SELECT * FROM media WHERE id = ?').get(req.params.id);
+  const row = db.prepare(
+    `SELECT m.*, m.visibility AS media_visibility, sl.visibility AS source_visibility
+       FROM media m
+       LEFT JOIN source_locations sl ON sl.id = m.source_location_id
+      WHERE m.id = ?`
+  ).get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Not found' });
+  if (!canAccessFromRow(row, req)) return res.status(404).json({ error: 'Not found' });
   if (row.type !== 'video') return res.status(400).json({ error: 'Not a video' });
 
   const filePath = row.file_path;

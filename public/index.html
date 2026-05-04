@@ -55,17 +55,17 @@
       </div>
 
       <div class="filter-section">
-        <label class="filter-label">Year</label>
-        <div class="filter-options" id="year-filter">
-          <label><input type="radio" name="year" value="" checked /> All Years</label>
-        </div>
+        <label class="filter-label" for="year-filter">Year</label>
+        <select id="year-filter" class="filter-select">
+          <option value="">All Years</option>
+        </select>
       </div>
 
       <div class="filter-section">
-        <label class="filter-label">Location</label>
-        <div class="filter-options" id="location-filter">
-          <label><input type="radio" name="location" value="" checked /> All Locations</label>
-        </div>
+        <label class="filter-label" for="location-filter">Location</label>
+        <select id="location-filter" class="filter-select">
+          <option value="">All Locations</option>
+        </select>
       </div>
 
       <div class="filter-section">
@@ -102,6 +102,7 @@
     </main>
   </div>
 
+  <script src="/js/admin-mode.js"></script>
   <script src="/js/app.js"></script>
 </body>
 </html>

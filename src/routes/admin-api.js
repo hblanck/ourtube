@@ -6,6 +6,8 @@ const path = require('path');
 const { getDb } = require('../db');
 const { scanLocation, scanAllLocations, getScanStatus } = require('../scanner');
 const { getActiveSessions } = require('../sessions');
+const { normalizeVisibility } = require('../visibility');
+const { parseVirtualMediaId, getStitchGroupPath } = require('../virtual-media');
 
 const router = express.Router();
 const MEDIA_ROOT = path.resolve('/media');
@@ -13,6 +15,20 @@ const MEDIA_FILE_EXTENSIONS = new Set([
   'mp4', 'mkv', 'avi', 'mov', 'wmv', 'flv', 'webm', 'm4v', 'mpg', 'mpeg', '3gp',
   'jpg', 'jpeg', 'png', 'gif', 'bmp', 'tiff', 'tif', 'heic', 'webp', 'raw', 'arw', 'cr2', 'nef'
 ]);
+
+function logAdminAudit(db, req, action, metadata) {
+  try {
+    db.prepare(
+      'INSERT INTO admin_audit_log (action, actor_key_id, metadata) VALUES (?, ?, ?)'
+    ).run(
+      action,
+      req.adminSession?.keyId || null,
+      JSON.stringify(metadata || {})
+    );
+  } catch (err) {
+    console.warn('[admin] Failed to write audit log:', err.message);
+  }
+}
 
 function toPosixPath(p) {
   return p.replace(/\\/g, '/');
@@ -183,6 +199,7 @@ router.post('/locations', (req, res) => {
     path: locPath,
     entries,
     type = 'both',
+    visibility = 'all',
     scan_interval = 3600,
     stitch_directories = 0,
   } = req.body;
@@ -194,8 +211,8 @@ router.post('/locations', (req, res) => {
   const createTx = db.transaction(() => {
     const firstPath = normalizedEntries[0].path;
     const result = db.prepare(
-      'INSERT INTO source_locations (name, path, type, scan_interval, stitch_directories) VALUES (?, ?, ?, ?, ?)'
-    ).run(name, firstPath, type, scan_interval, stitch_directories ? 1 : 0);
+      'INSERT INTO source_locations (name, path, type, visibility, scan_interval, stitch_directories) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(name, firstPath, type, normalizeVisibility(visibility), scan_interval, stitch_directories ? 1 : 0);
 
     const locationId = Number(result.lastInsertRowid);
     const insertEntry = db.prepare(
@@ -217,7 +234,7 @@ router.post('/locations', (req, res) => {
 // PUT /api/admin/locations/:id
 router.put('/locations/:id', (req, res) => {
   const db = getDb();
-  const { name, path: locPath, entries, type, scan_interval, enabled, stitch_directories } = req.body;
+  const { name, path: locPath, entries, type, visibility, scan_interval, enabled, stitch_directories } = req.body;
   const loc = db.prepare('SELECT * FROM source_locations WHERE id = ?').get(req.params.id);
   if (!loc) return res.status(404).json({ error: 'Not found' });
 
@@ -234,6 +251,7 @@ router.put('/locations/:id', (req, res) => {
         name = COALESCE(?, name),
         path = ?,
         type = COALESCE(?, type),
+        visibility = COALESCE(?, visibility),
         scan_interval = COALESCE(?, scan_interval),
         stitch_directories = COALESCE(?, stitch_directories),
         enabled = COALESCE(?, enabled)
@@ -242,6 +260,7 @@ router.put('/locations/:id', (req, res) => {
       name ?? null,
       nextPath,
       type ?? null,
+      visibility !== undefined ? normalizeVisibility(visibility) : null,
       scan_interval ?? null,
       stitch_directories ?? null,
       enabled ?? null,
@@ -342,10 +361,70 @@ router.get('/active-sessions', (req, res) => {
 // PUT /api/admin/media/:id
 router.put('/media/:id', (req, res) => {
   const db = getDb();
+
+  const { friendly_name, description, location, year, tags, visibility } = req.body;
+
+  // Handle virtual (stitched) media IDs — update all constituent segment rows
+  const virtualRef = parseVirtualMediaId(req.params.id);
+  if (virtualRef) {
+    const segmentRows = db.prepare(
+      `SELECT m.*, sl.stitch_directories, sl.path AS source_location_path,
+              (SELECT sle.entry_path FROM source_location_entries sle
+                WHERE sle.source_location_id = m.source_location_id
+                  AND sle.entry_type = 'directory'
+                  AND (m.file_path = sle.entry_path OR m.file_path LIKE sle.entry_path || '/%')
+                ORDER BY LENGTH(sle.entry_path) DESC LIMIT 1) AS source_entry_path,
+              (SELECT sle.entry_type FROM source_location_entries sle
+                WHERE sle.source_location_id = m.source_location_id
+                  AND sle.entry_type = 'directory'
+                  AND (m.file_path = sle.entry_path OR m.file_path LIKE sle.entry_path || '/%')
+                ORDER BY LENGTH(sle.entry_path) DESC LIMIT 1) AS source_entry_type
+         FROM media m
+         LEFT JOIN source_locations sl ON sl.id = m.source_location_id
+        WHERE m.source_location_id = ? AND m.type = 'video'`
+    ).all(virtualRef.sourceLocationId);
+
+    const matchingSegments = segmentRows.filter(
+      row => getStitchGroupPath(row) === virtualRef.groupPath
+    );
+    if (!matchingSegments.length) return res.status(404).json({ error: 'Not found' });
+
+    const tagsJson = tags !== undefined
+      ? JSON.stringify(Array.isArray(tags) ? tags : [])
+      : null;
+    const normVisibility = visibility !== undefined ? normalizeVisibility(visibility) : null;
+
+    const update = db.prepare(
+      `UPDATE media SET
+        friendly_name = COALESCE(?, friendly_name),
+        description = COALESCE(?, description),
+        location = COALESCE(?, location),
+        year = COALESCE(?, year),
+        tags = COALESCE(?, tags),
+        visibility = COALESCE(?, visibility)
+      WHERE id = ?`
+    );
+    const updateAll = db.transaction(segments => {
+      for (const seg of segments) {
+        update.run(
+          friendly_name ?? null,
+          description ?? null,
+          location !== undefined ? location : null,
+          year !== undefined ? year : null,
+          tagsJson,
+          normVisibility,
+          seg.id
+        );
+      }
+    });
+    updateAll(matchingSegments);
+
+    return res.json({ id: req.params.id, updated: matchingSegments.length });
+  }
+
+  // Regular (non-virtual) media
   const row = db.prepare('SELECT * FROM media WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Not found' });
-
-  const { friendly_name, description, location, year, tags } = req.body;
 
   db.prepare(
     `UPDATE media SET
@@ -353,7 +432,8 @@ router.put('/media/:id', (req, res) => {
       description = COALESCE(?, description),
       location = ?,
       year = ?,
-      tags = COALESCE(?, tags)
+      tags = COALESCE(?, tags),
+      visibility = COALESCE(?, visibility)
     WHERE id = ?`
   ).run(
     friendly_name ?? null,
@@ -361,10 +441,72 @@ router.put('/media/:id', (req, res) => {
     location !== undefined ? location : row.location,
     year !== undefined ? year : row.year,
     tags !== undefined ? JSON.stringify(Array.isArray(tags) ? tags : []) : null,
+    visibility !== undefined ? normalizeVisibility(visibility) : null,
     req.params.id
   );
 
   res.json(db.prepare('SELECT * FROM media WHERE id = ?').get(req.params.id));
+});
+
+// POST /api/admin/media/bulk-visibility
+router.post('/media/bulk-visibility', (req, res) => {
+  const db = getDb();
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(id => String(id || '').trim()).filter(Boolean) : [];
+  const visibility = normalizeVisibility(req.body?.visibility);
+
+  if (!ids.length) return res.status(400).json({ error: 'ids is required' });
+
+  const placeholders = ids.map(() => '?').join(', ');
+  const result = db.prepare(
+    `UPDATE media
+        SET visibility = ?
+      WHERE id IN (${placeholders})`
+  ).run(visibility, ...ids);
+
+  logAdminAudit(db, req, 'media.bulk_visibility', {
+    visibility,
+    requestedIds: ids.length,
+    updated: result.changes,
+    sampleIds: ids.slice(0, 10),
+  });
+
+  res.json({ success: true, updated: result.changes, visibility });
+});
+
+// POST /api/admin/locations/:id/media-visibility
+router.post('/locations/:id/media-visibility', (req, res) => {
+  const db = getDb();
+  const locationId = parseInt(req.params.id, 10);
+  if (!Number.isInteger(locationId)) return res.status(400).json({ error: 'Invalid id' });
+
+  const loc = db.prepare('SELECT id FROM source_locations WHERE id = ?').get(locationId);
+  if (!loc) return res.status(404).json({ error: 'Not found' });
+
+  const visibility = normalizeVisibility(req.body?.visibility);
+  const updateSource = req.body?.update_source_visibility === true || req.body?.update_source_visibility === 1;
+
+  const tx = db.transaction(() => {
+    const mediaResult = db.prepare(
+      'UPDATE media SET visibility = ? WHERE source_location_id = ?'
+    ).run(visibility, locationId);
+
+    if (updateSource) {
+      db.prepare('UPDATE source_locations SET visibility = ? WHERE id = ?').run(visibility, locationId);
+    }
+
+    return mediaResult.changes;
+  });
+
+  const updated = tx();
+
+  logAdminAudit(db, req, 'location.bulk_media_visibility', {
+    sourceLocationId: locationId,
+    visibility,
+    sourceUpdated: updateSource,
+    updated,
+  });
+
+  res.json({ success: true, updated, visibility, sourceUpdated: updateSource });
 });
 
 // DELETE /api/admin/media/:id  (removes from index only, does NOT delete source)
@@ -412,6 +554,110 @@ router.get('/settings', (req, res) => {
   const settings = {};
   rows.forEach(r => { settings[r.key] = r.value; });
   res.json(settings);
+});
+
+// Shared helper: build audit-log WHERE clause from query params
+function buildAuditLogWhere(query) {
+  const conditions = [];
+  const params = [];
+  const { action, date_from, date_to } = query;
+
+  if (action) {
+    conditions.push('al.action = ?');
+    params.push(action);
+  }
+  if (date_from) {
+    conditions.push("al.created_at >= ?");
+    params.push(date_from);
+  }
+  if (date_to) {
+    // include the full day by going to end of day
+    const endOfDay = date_to.length === 10 ? date_to + 'T23:59:59.999Z' : date_to;
+    conditions.push("al.created_at <= ?");
+    params.push(endOfDay);
+  }
+
+  return {
+    where: conditions.length ? 'WHERE ' + conditions.join(' AND ') : '',
+    params,
+  };
+}
+
+function parseAuditLogRow(row) {
+  let metadata = {};
+  try { metadata = JSON.parse(row.metadata || '{}'); } catch { metadata = {}; }
+  return {
+    id: row.id,
+    action: row.action,
+    actor_key_id: row.actor_key_id,
+    actor_key_name: row.actor_key_name,
+    metadata,
+    created_at: row.created_at,
+  };
+}
+
+// GET /api/admin/audit-log
+router.get('/audit-log', (req, res) => {
+  const db = getDb();
+  const { page = 1, limit = 25 } = req.query;
+
+  const safePage = Math.max(1, parseInt(page, 10) || 1);
+  const pageLimit = Math.min(100, Math.max(1, parseInt(limit, 10) || 25));
+  const offset = (safePage - 1) * pageLimit;
+
+  const { where, params } = buildAuditLogWhere(req.query);
+
+  const total = db.prepare(`SELECT COUNT(*) AS cnt FROM admin_audit_log al ${where}`).get(...params).cnt;
+
+  const rows = db.prepare(
+    `SELECT al.id, al.action, al.actor_key_id, al.metadata, al.created_at,
+            ak.name AS actor_key_name
+       FROM admin_audit_log al
+       LEFT JOIN admin_keys ak ON ak.id = al.actor_key_id
+       ${where}
+      ORDER BY al.created_at DESC, al.id DESC
+      LIMIT ? OFFSET ?`
+  ).all(...params, pageLimit, offset);
+
+  res.json({ total, page: safePage, limit: pageLimit, items: rows.map(parseAuditLogRow) });
+});
+
+// GET /api/admin/audit-log/export  — returns CSV download
+router.get('/audit-log/export', (req, res) => {
+  const db = getDb();
+  const { where, params } = buildAuditLogWhere(req.query);
+
+  const rows = db.prepare(
+    `SELECT al.id, al.action, al.actor_key_id, al.metadata, al.created_at,
+            ak.name AS actor_key_name
+       FROM admin_audit_log al
+       LEFT JOIN admin_keys ak ON ak.id = al.actor_key_id
+       ${where}
+      ORDER BY al.created_at DESC, al.id DESC`
+  ).all(...params);
+
+  const escape = v => {
+    const s = String(v ?? '');
+    return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+
+  const header = ['id', 'created_at', 'action', 'actor_key_name', 'metadata'].map(escape).join(',');
+  const lines = rows.map(row => {
+    const item = parseAuditLogRow(row);
+    return [
+      item.id,
+      item.created_at,
+      item.action,
+      item.actor_key_name || '',
+      JSON.stringify(item.metadata),
+    ].map(escape).join(',');
+  });
+
+  const csv = [header, ...lines].join('\r\n');
+  const filename = `audit-log-${new Date().toISOString().slice(0, 10)}.csv`;
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.send(csv);
 });
 
 // PUT /api/admin/settings

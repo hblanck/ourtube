@@ -31,6 +31,8 @@
     </nav>
 
     <div class="admin-content">
+      <div id="admin-auth-notice" style="display:none;margin-bottom:16px;padding:12px;border-radius:8px;background:#fff4e5;color:#8a5a00;border:1px solid #f3d8a6"></div>
+
       <!-- Dashboard -->
       <section class="admin-section active" id="tab-dashboard">
         <h2>Dashboard</h2>
@@ -86,7 +88,7 @@
         <table class="data-table" id="locations-table">
           <thead>
             <tr>
-              <th>Name</th><th>Path</th><th>Type</th><th>Enabled</th>
+              <th>Name</th><th>Path</th><th>Type</th><th>Visibility</th><th>Enabled</th>
               <th>Scan Interval</th><th>Last Scanned</th><th>Actions</th>
             </tr>
           </thead>
@@ -108,11 +110,28 @@
             <option value="">All Source Locations</option>
           </select>
         </div>
+        <div id="library-visibility-filters" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+          <span style="font-size:12px;color:#666">Visibility:</span>
+          <button type="button" class="btn btn-small library-vis-chip active" data-visibility="" onclick="setLibraryVisibilityFilter('')">All</button>
+          <button type="button" class="btn btn-small library-vis-chip" data-visibility="admin" onclick="setLibraryVisibilityFilter('admin')">Admin only</button>
+          <button type="button" class="btn btn-small library-vis-chip" data-visibility="none" onclick="setLibraryVisibilityFilter('none')">None</button>
+        </div>
+        <div id="library-bulk-actions" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+          <span id="library-selected-count" style="font-size:12px;color:#666">0 selected</span>
+          <select id="library-bulk-visibility" class="form-select" style="max-width:170px">
+            <option value="all">All</option>
+            <option value="admin">Admin only</option>
+            <option value="none">None</option>
+          </select>
+          <button type="button" class="btn btn-secondary btn-small" onclick="applySelectedVisibility()">Apply to Selected</button>
+          <button type="button" class="btn btn-secondary btn-small" onclick="clearLibrarySelection()">Clear Selection</button>
+        </div>
         <table class="data-table" id="library-table">
           <thead>
             <tr>
+              <th><input type="checkbox" id="library-select-all" /></th>
               <th>Name</th><th>Type</th><th>Year</th><th>Location</th><th>Source</th>
-              <th>Duration</th><th>Size</th><th>Actions</th>
+              <th>Visibility</th><th>Duration</th><th>Size</th><th>Actions</th>
             </tr>
           </thead>
           <tbody id="library-tbody"></tbody>
@@ -160,6 +179,59 @@
           <button type="submit" class="btn btn-primary">Save Settings</button>
         </form>
         <p id="settings-msg" style="margin-top:12px;font-size:13px;color:green;display:none">Settings saved!</p>
+
+        <h3 style="margin-top:28px;margin-bottom:12px">Admin Keys</h3>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+          <input type="text" id="new-admin-key-name" class="form-input" placeholder="Key name (e.g. Phone, Laptop)" style="max-width:280px" />
+          <button type="button" class="btn btn-primary" onclick="createAdminKey()">Create Key</button>
+        </div>
+        <div id="new-admin-key-output" style="display:none;margin-bottom:12px;padding:10px;border:1px solid #e8d9a3;background:#fff8dc;border-radius:8px;font-size:13px"></div>
+        <table class="data-table" id="admin-keys-table">
+          <thead>
+            <tr>
+              <th>Name</th><th>Prefix</th><th>Created</th><th>Last Used</th><th>Status</th><th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="admin-keys-tbody">
+            <tr><td colspan="6" style="color:#aaa;text-align:center">Loading…</td></tr>
+          </tbody>
+        </table>
+
+        <h3 style="margin-top:28px;margin-bottom:8px">Recent Admin Activity</h3>
+        <div id="audit-log-filters" style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-bottom:12px">
+          <div>
+            <label style="display:block;font-size:12px;color:#aaa;margin-bottom:3px">Action</label>
+            <select id="audit-filter-action" class="form-input" style="min-width:210px">
+              <option value="">All actions</option>
+              <option value="media.bulk_visibility">media.bulk_visibility</option>
+              <option value="location.bulk_media_visibility">location.bulk_media_visibility</option>
+            </select>
+          </div>
+          <div>
+            <label style="display:block;font-size:12px;color:#aaa;margin-bottom:3px">From</label>
+            <input type="date" id="audit-filter-from" class="form-input" style="min-width:140px">
+          </div>
+          <div>
+            <label style="display:block;font-size:12px;color:#aaa;margin-bottom:3px">To</label>
+            <input type="date" id="audit-filter-to" class="form-input" style="min-width:140px">
+          </div>
+          <div style="display:flex;gap:6px;padding-bottom:1px">
+            <button class="btn btn-primary btn-small" onclick="applyAuditFilters()">Apply</button>
+            <button class="btn btn-secondary btn-small" onclick="clearAuditFilters()">Clear</button>
+            <button class="btn btn-secondary btn-small" onclick="exportAuditLogCsv()" title="Download filtered results as CSV">⬇ CSV</button>
+          </div>
+        </div>
+        <table class="data-table" id="audit-log-table">
+          <thead>
+            <tr>
+              <th>Time</th><th>Action</th><th>Actor Key</th><th>Details</th>
+            </tr>
+          </thead>
+          <tbody id="audit-log-tbody">
+            <tr><td colspan="4" style="color:#aaa;text-align:center">Loading…</td></tr>
+          </tbody>
+        </table>
+        <div id="audit-log-pagination" style="margin-top:12px;display:flex;gap:8px;align-items:center;font-size:13px"></div>
       </section>
     </div>
   </div>
@@ -211,6 +283,14 @@
               <option value="both">Both</option>
               <option value="video">Videos only</option>
               <option value="photo">Photos only</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Visibility</label>
+            <select name="visibility" class="form-select">
+              <option value="all">All</option>
+              <option value="admin">Admin only</option>
+              <option value="none">None</option>
             </select>
           </div>
           <div class="form-group">
@@ -269,6 +349,14 @@
           </div>
         </div>
         <div class="form-group">
+          <label class="form-label">Visibility</label>
+          <select name="visibility" class="form-select">
+            <option value="all">All</option>
+            <option value="admin">Admin only</option>
+            <option value="none">None</option>
+          </select>
+        </div>
+        <div class="form-group">
           <label class="form-label">Tags (comma separated)</label>
           <input type="text" name="tags" class="form-input" placeholder="family, vacation, 2023" />
         </div>
@@ -291,6 +379,42 @@
     </div>
   </div>
 
+  <!-- Source Visibility Modal -->
+  <div class="modal-overlay" id="source-visibility-modal">
+    <div class="modal" style="max-width:460px">
+      <div class="modal-header">
+        <div class="modal-title">Apply Source Visibility</div>
+        <button class="modal-close" onclick="closeModal('source-visibility-modal')">✕</button>
+      </div>
+      <form id="source-visibility-form">
+        <input type="hidden" name="source_id" />
+        <div class="form-group">
+          <label class="form-label">Source</label>
+          <div id="source-visibility-name" style="font-weight:600;color:#333"></div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Visibility for all indexed media in this source</label>
+          <select name="visibility" class="form-select">
+            <option value="all">All</option>
+            <option value="admin">Admin only</option>
+            <option value="none">None</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" style="display:flex;align-items:flex-start;gap:8px;cursor:pointer">
+            <input type="checkbox" name="update_source_visibility" value="1" checked />
+            <span>Also update the collection visibility to match</span>
+          </label>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('source-visibility-modal')">Cancel</button>
+          <button type="submit" class="btn btn-primary">Apply</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/js/admin-mode.js"></script>
   <script>
   'use strict';
   // ── Utilities ────────────────────────────────────────────
@@ -308,6 +432,51 @@
     return h?`${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`:`${m}:${String(sec).padStart(2,'0')}`;
   }
   function fmtDate(s) { try { return s ? new Date(s).toLocaleString() : '—'; } catch { return s||'—'; } }
+  function fmtVisibility(v) {
+    if (v === 'admin') return 'Admin only';
+    if (v === 'none') return 'None';
+    return 'All';
+  }
+
+  async function adminFetch(url, options = {}) {
+    const res = await fetch(url, options);
+    if (res.status === 401) {
+      // Session expired or was cleared — prompt re-auth
+      const notice = document.getElementById('admin-auth-notice');
+      if (notice) {
+        notice.style.display = 'block';
+        notice.textContent = 'Admin session expired. Use the 🔐 Admin button to unlock again.';
+      }
+      const content = document.querySelector('.admin-content');
+      if (content) content.style.opacity = '0.5';
+    }
+    return res;
+  }
+
+  async function ensureAdminPageAccess() {
+    const notice = document.getElementById('admin-auth-notice');
+    const content = document.querySelector('.admin-content');
+    const statusRes = await fetch('/api/admin/auth/status');
+    const status = await statusRes.json();
+
+    if (!status.configured) {
+      notice.style.display = 'block';
+      notice.textContent = 'Admin keys are not configured yet. Run "npm run admin:key:create" (or docker exec ... npm run admin:key:create) and unlock again.';
+      if (content) content.style.opacity = '0.5';
+      return false;
+    }
+
+    if (!status.authenticated) {
+      notice.style.display = 'block';
+      notice.textContent = 'Admin key required. Use the 🔐 Admin button in the header to unlock this page.';
+      if (content) content.style.opacity = '0.5';
+      return false;
+    }
+
+    notice.style.display = 'none';
+    if (content) content.style.opacity = '1';
+    return true;
+  }
 
   function closeModal(id) {
     document.getElementById(id).classList.remove('open');
@@ -446,6 +615,7 @@
   // ── Locations ────────────────────────────────────────────
   let locationEntries = [];
   let stitchPromptShown = false;
+  const locationNameById = {};
 
   function markStitchEdited() {
     stitchPromptShown = true;
@@ -506,11 +676,13 @@
 
   async function loadLocations() {
     const tbody = document.getElementById('locations-tbody');
-    tbody.innerHTML = '<tr><td colspan="7" style="color:#aaa;text-align:center">Loading…</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" style="color:#aaa;text-align:center">Loading…</td></tr>';
     const res = await fetch('/api/admin/locations');
     const locs = await res.json();
+    Object.keys(locationNameById).forEach(key => { delete locationNameById[key]; });
+    locs.forEach(loc => { locationNameById[String(loc.id)] = loc.name; });
     if (!locs.length) {
-      tbody.innerHTML = '<tr><td colspan="7" style="color:#aaa;text-align:center">No source locations. Add one above.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" style="color:#aaa;text-align:center">No source locations. Add one above.</td></tr>';
       return;
     }
     tbody.innerHTML = locs.map(l => `
@@ -518,12 +690,14 @@
         <td><strong>${escHtml(l.name)}</strong></td>
         <td><code style="font-size:12px">${escHtml((l.entries && l.entries[0] && l.entries[0].path) || l.path)}${(l.entries && l.entries.length > 1) ? ` (+${l.entries.length - 1} more)` : ''}</code></td>
         <td>${escHtml(l.type)}${l.stitch_directories ? '<div style="font-size:11px;color:#2563eb">stitched folders</div>' : ''}</td>
+        <td>${fmtVisibility(l.visibility)}</td>
         <td>${l.enabled ? '✅' : '❌'}</td>
         <td>${l.scan_interval}s</td>
         <td style="font-size:12px">${l.last_scanned ? fmtDate(l.last_scanned) : 'Never'}</td>
         <td>
           <button class="btn btn-small" onclick="openEditLocation(${l.id})">Edit</button>
           <button class="btn btn-small" onclick="scanLocation(${l.id})">Scan</button>
+          <button class="btn btn-small" onclick="openSourceVisibilityModal(${l.id})">Apply Visibility</button>
           <button class="btn btn-small" style="color:red" onclick="deleteLocation(${l.id})">Delete</button>
         </td>
       </tr>`).join('');
@@ -554,6 +728,7 @@
     form.querySelector('[name=id]').value = loc.id;
     form.querySelector('[name=name]').value = loc.name;
     form.querySelector('[name=type]').value = loc.type;
+    form.querySelector('[name=visibility]').value = loc.visibility || 'all';
     form.querySelector('[name=scan_interval]').value = loc.scan_interval;
     form.querySelector('[name=enabled]').checked = !!loc.enabled;
     form.querySelector('[name=stitch_directories]').checked = !!loc.stitch_directories;
@@ -676,6 +851,7 @@
       path: entries[0].path,
       entries,
       type: form.querySelector('[name=type]').value,
+      visibility: form.querySelector('[name=visibility]').value,
       scan_interval: parseInt(form.querySelector('[name=scan_interval]').value),
       stitch_directories: form.querySelector('[name=stitch_directories]').checked ? 1 : 0,
       enabled: form.querySelector('[name=enabled]').checked ? 1 : 0
@@ -711,9 +887,41 @@
   let libPage = 1;
   let libTotal = 0;
   const libLimit = 20;
+  let libVisibilityFilter = '';
+  let libraryCurrentIds = [];
+  const selectedLibraryIds = new Set();
   let skippedPage = 1;
   let skippedTotal = 0;
   const skippedLimit = 20;
+
+  function updateLibrarySelectionUi() {
+    const countEl = document.getElementById('library-selected-count');
+    if (countEl) countEl.textContent = `${selectedLibraryIds.size} selected`;
+
+    const allCheckbox = document.getElementById('library-select-all');
+    if (allCheckbox) {
+      const pageCount = libraryCurrentIds.length;
+      const selectedOnPage = libraryCurrentIds.filter(id => selectedLibraryIds.has(id)).length;
+      allCheckbox.checked = pageCount > 0 && selectedOnPage === pageCount;
+      allCheckbox.indeterminate = selectedOnPage > 0 && selectedOnPage < pageCount;
+    }
+  }
+
+  function clearLibrarySelection() {
+    selectedLibraryIds.clear();
+    updateLibrarySelectionUi();
+    document.querySelectorAll('.library-select-row').forEach(cb => { cb.checked = false; });
+  }
+
+  function setLibraryVisibilityFilter(value) {
+    libVisibilityFilter = String(value || '');
+    document.querySelectorAll('.library-vis-chip').forEach(btn => {
+      const isActive = btn.dataset.visibility === libVisibilityFilter;
+      btn.classList.toggle('active', isActive);
+    });
+    libPage = 1;
+    loadLibrary();
+  }
 
   async function loadLibrarySourceLocationFilter() {
     const sel = document.getElementById('library-source-location');
@@ -738,29 +946,33 @@
 
   async function loadLibrary() {
     const tbody = document.getElementById('library-tbody');
-    tbody.innerHTML = '<tr><td colspan="8" style="color:#aaa;text-align:center">Loading…</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" style="color:#aaa;text-align:center">Loading…</td></tr>';
 
     const q = document.getElementById('library-search').value;
     const type = document.getElementById('library-type').value;
     const sourceLocationId = document.getElementById('library-source-location').value;
-    const params = new URLSearchParams({ page: libPage, limit: libLimit });
+    const params = new URLSearchParams({ page: libPage, limit: libLimit, include_hidden: '1' });
     if (q) params.set('search', q);
     if (type) params.set('type', type);
     if (sourceLocationId) params.set('source_location_id', sourceLocationId);
+    if (libVisibilityFilter) params.set('visibility', libVisibilityFilter);
 
     const res = await fetch('/api/media?' + params.toString());
     const data = await res.json();
     libTotal = data.total;
+    libraryCurrentIds = (data.items || []).map(item => String(item.id));
 
     if (!data.items.length) {
-      tbody.innerHTML = '<tr><td colspan="8" style="color:#aaa;text-align:center">No items found.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="10" style="color:#aaa;text-align:center">No items found.</td></tr>';
       document.getElementById('library-pagination').innerHTML = '';
+      updateLibrarySelectionUi();
       await loadSkippedFiles();
       return;
     }
 
     tbody.innerHTML = data.items.map(m => `
       <tr>
+        <td><input type="checkbox" class="library-select-row" data-id="${escHtml(m.id)}" ${selectedLibraryIds.has(String(m.id)) ? 'checked' : ''} /></td>
         <td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
           <strong>${escHtml(m.friendly_name || m.file_name)}</strong>
         </td>
@@ -773,6 +985,7 @@
             ? `<div style="font-size:12px;color:#777;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><code>${escHtml(m.source_entry_path || m.source_location_path)}</code></div>`
             : ''}
         </td>
+        <td style="font-size:12px">${fmtVisibility(m.visibility)} / ${fmtVisibility(m.source_visibility)}</td>
         <td>${fmtDur(m.duration)}</td>
         <td>${fmtSize(m.size)}</td>
         <td>
@@ -780,6 +993,18 @@
           <a class="btn btn-small" href="/watch.html?id=${escHtml(m.id)}" target="_blank">View</a>
         </td>
       </tr>`).join('');
+
+    document.querySelectorAll('.library-select-row').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const id = String(cb.dataset.id || '');
+        if (!id) return;
+        if (cb.checked) selectedLibraryIds.add(id);
+        else selectedLibraryIds.delete(id);
+        updateLibrarySelectionUi();
+      });
+    });
+
+    updateLibrarySelectionUi();
 
     // Pagination
     const totalPages = Math.ceil(libTotal / libLimit);
@@ -793,6 +1018,72 @@
   }
 
   function libGo(p) { libPage = p; loadLibrary(); }
+
+  async function applySelectedVisibility() {
+    const ids = Array.from(selectedLibraryIds);
+    if (!ids.length) {
+      alert('Select at least one item first.');
+      return;
+    }
+
+    const visibility = document.getElementById('library-bulk-visibility').value;
+    const res = await fetch('/api/admin/media/bulk-visibility', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids, visibility })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data.error || 'Failed to update selected items');
+      return;
+    }
+
+    alert(`Updated visibility for ${data.updated} item(s).`);
+    clearLibrarySelection();
+    loadLibrary();
+  }
+
+  function openSourceVisibilityModal(id) {
+    const form = document.getElementById('source-visibility-form');
+    form.querySelector('[name=source_id]').value = String(id);
+    form.querySelector('[name=visibility]').value = 'all';
+    form.querySelector('[name=update_source_visibility]').checked = true;
+    const sourceName = locationNameById[String(id)] || `Source #${id}`;
+    document.getElementById('source-visibility-name').textContent = sourceName;
+    openModal('source-visibility-modal');
+  }
+
+  async function applySourceVisibility(id, visibility, updateSource) {
+    const res = await fetch(`/api/admin/locations/${id}/media-visibility`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ visibility, update_source_visibility: updateSource ? 1 : 0 })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data.error || 'Failed to apply source visibility');
+      return;
+    }
+
+    alert(`Updated ${data.updated} media item(s) in this source.`);
+    loadLocations();
+    if (document.querySelector('#tab-library').classList.contains('active')) loadLibrary();
+  }
+
+  document.getElementById('source-visibility-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const form = e.target;
+    const id = parseInt(form.querySelector('[name=source_id]').value, 10);
+    const visibility = form.querySelector('[name=visibility]').value;
+    const updateSource = form.querySelector('[name=update_source_visibility]').checked;
+    if (!Number.isInteger(id)) {
+      alert('Invalid source id.');
+      return;
+    }
+
+    await applySourceVisibility(id, visibility, updateSource);
+    closeModal('source-visibility-modal');
+  });
 
   async function loadSkippedFiles() {
     const tbody = document.getElementById('skipped-tbody');
@@ -856,6 +1147,16 @@
     loadLibrary();
   });
 
+  document.getElementById('library-select-all').addEventListener('change', e => {
+    const checked = !!e.target.checked;
+    libraryCurrentIds.forEach(id => {
+      if (checked) selectedLibraryIds.add(id);
+      else selectedLibraryIds.delete(id);
+    });
+    document.querySelectorAll('.library-select-row').forEach(cb => { cb.checked = checked; });
+    updateLibrarySelectionUi();
+  });
+
   // Edit media modal
   let currentMediaId = null;
   let currentFaces = [];
@@ -864,7 +1165,7 @@
     currentMediaId = id;
     currentFaces = [];
 
-    const res = await fetch(`/api/media/${id}`);
+    const res = await fetch(`/api/media/${id}?include_hidden=1`);
     const m = await res.json();
 
     const form = document.getElementById('media-form');
@@ -873,6 +1174,7 @@
     form.querySelector('[name=description]').value = m.description || '';
     form.querySelector('[name=year]').value = m.year || '';
     form.querySelector('[name=location]').value = m.location || '';
+    form.querySelector('[name=visibility]').value = m.visibility || 'all';
     const tags = Array.isArray(m.tags) ? m.tags : [];
     form.querySelector('[name=tags]').value = tags.join(', ');
 
@@ -896,11 +1198,12 @@
     const input = document.getElementById('face-name-input');
     const name = input.value.trim();
     if (!name || !currentMediaId) return;
-    const res = await fetch(`/api/admin/media/${currentMediaId}/faces`, {
+    const res = await adminFetch(`/api/admin/media/${currentMediaId}/faces`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ person_name: name })
     });
+    if (!res.ok) { alert(`Failed to add person (${res.status})`); return; }
     const face = await res.json();
     currentFaces.push(face);
     renderFaceList();
@@ -908,7 +1211,8 @@
   }
 
   async function removeFace(faceId) {
-    await fetch(`/api/admin/faces/${faceId}`, { method: 'DELETE' });
+    const delRes = await adminFetch(`/api/admin/faces/${faceId}`, { method: 'DELETE' });
+    if (!delRes.ok) { alert(`Failed to remove person (${delRes.status})`); return; }
     currentFaces = currentFaces.filter(f => f.id !== faceId);
     renderFaceList();
   }
@@ -925,14 +1229,21 @@
       description: form.querySelector('[name=description]').value,
       year: form.querySelector('[name=year]').value ? parseInt(form.querySelector('[name=year]').value) : null,
       location: form.querySelector('[name=location]').value,
+      visibility: form.querySelector('[name=visibility]').value,
       tags
     };
 
-    await fetch(`/api/admin/media/${id}`, {
+    const saveRes = await adminFetch(`/api/admin/media/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     });
+
+    if (!saveRes.ok) {
+      const errData = await saveRes.json().catch(() => ({}));
+      alert(`Save failed (${saveRes.status}): ${errData.error || 'Unknown error'}`);
+      return;
+    }
 
     closeModal('media-modal');
     loadLibrary();
@@ -947,14 +1258,20 @@
   }
 
   // ── Settings ─────────────────────────────────────────────
+  let auditLogPage = 1;
+  const auditLogLimit = 20;
+
   async function loadSettings() {
-    const res = await fetch('/api/admin/settings');
+    const res = await adminFetch('/api/admin/settings');
+    if (!res.ok) return;
     const settings = await res.json();
     const form = document.getElementById('settings-form');
     for (const [key, value] of Object.entries(settings)) {
       const el = form.querySelector(`[name="${key}"]`);
       if (el) el.value = value;
     }
+    loadAdminKeys();
+    loadAuditLog();
   }
 
   document.getElementById('settings-form').addEventListener('submit', async e => {
@@ -962,7 +1279,7 @@
     const form = e.target;
     const body = {};
     new FormData(form).forEach((v, k) => { body[k] = v; });
-    await fetch('/api/admin/settings', {
+    await adminFetch('/api/admin/settings', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
@@ -972,8 +1289,211 @@
     setTimeout(() => { msg.style.display = 'none'; }, 3000);
   });
 
+  async function loadAdminKeys() {
+    const tbody = document.getElementById('admin-keys-tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="6" style="color:#aaa;text-align:center">Loading…</td></tr>';
+
+    const res = await adminFetch('/api/admin/auth/keys');
+    if (!res.ok) {
+      tbody.innerHTML = '<tr><td colspan="6" style="color:#b91c1c;text-align:center">Admin auth required.</td></tr>';
+      return;
+    }
+
+    const keys = await res.json();
+    if (!keys.length) {
+      tbody.innerHTML = '<tr><td colspan="6" style="color:#aaa;text-align:center">No keys found.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = keys.map(k => `
+      <tr>
+        <td><input type="text" id="admin-key-name-${k.id}" class="form-input" style="max-width:220px" value="${escHtml(k.name)}" /></td>
+        <td><code>${escHtml(k.key_prefix || '—')}</code></td>
+        <td>${fmtDate(k.created_at)}</td>
+        <td>${fmtDate(k.last_used_at)}</td>
+        <td>${k.revoked_at ? '<span style="color:#b91c1c">Revoked</span>' : '<span style="color:#166534">Active</span>'}</td>
+        <td>
+          <button class="btn btn-small" onclick="renameAdminKey(${k.id})">Rename</button>
+          ${k.revoked_at ? '' : `<button class="btn btn-small" style="color:#b91c1c" onclick="revokeAdminKey(${k.id})">Revoke</button>`}
+        </td>
+      </tr>
+    `).join('');
+  }
+
+  async function createAdminKey() {
+    const nameInput = document.getElementById('new-admin-key-name');
+    const output = document.getElementById('new-admin-key-output');
+    const payload = { name: (nameInput?.value || '').trim() || 'Admin Key' };
+
+    const res = await adminFetch('/api/admin/auth/keys', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data.error || 'Failed to create key');
+      return;
+    }
+
+    output.style.display = 'block';
+    output.innerHTML = `
+      <strong>New key created:</strong><br />
+      <code style="font-size:14px">${escHtml(data.key)}</code>
+      <div style="margin-top:6px;color:#8a5a00">Copy this now. It will not be shown again.</div>`;
+    if (nameInput) nameInput.value = '';
+    loadAdminKeys();
+  }
+
+  async function renameAdminKey(id) {
+    const input = document.getElementById(`admin-key-name-${id}`);
+    if (!input) return;
+
+    const res = await adminFetch(`/api/admin/auth/keys/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: input.value })
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data.error || 'Failed to rename key');
+      return;
+    }
+
+    loadAdminKeys();
+  }
+
+  async function revokeAdminKey(id) {
+    if (!confirm('Revoke this key? Sessions created by this key will be logged out.')) return;
+
+    const res = await adminFetch(`/api/admin/auth/keys/${id}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data.error || 'Failed to revoke key');
+      return;
+    }
+
+    loadAdminKeys();
+    await window.OurTubeAdminMode?.refresh?.();
+  }
+
+  function fmtAuditMetadata(entry) {
+    const md = entry?.metadata || {};
+    if (entry.action === 'media.bulk_visibility') {
+      return `visibility=${md.visibility || 'unknown'}, updated=${md.updated || 0}, requested=${md.requestedIds || 0}`;
+    }
+    if (entry.action === 'location.bulk_media_visibility') {
+      return `source=${md.sourceLocationId || 'n/a'}, visibility=${md.visibility || 'unknown'}, updated=${md.updated || 0}, sourceUpdated=${md.sourceUpdated ? 'yes' : 'no'}`;
+    }
+    const keys = Object.keys(md || {});
+    if (!keys.length) return '—';
+    return keys.slice(0, 3).map(key => `${key}=${String(md[key])}`).join(', ');
+  }
+
+  let auditLogFilters = { action: '', date_from: '', date_to: '' };
+
+  function buildAuditLogParams() {
+    const p = new URLSearchParams();
+    p.set('page', auditLogPage);
+    p.set('limit', auditLogLimit);
+    if (auditLogFilters.action)    p.set('action',    auditLogFilters.action);
+    if (auditLogFilters.date_from) p.set('date_from', auditLogFilters.date_from);
+    if (auditLogFilters.date_to)   p.set('date_to',   auditLogFilters.date_to);
+    return p.toString();
+  }
+
+  function applyAuditFilters() {
+    auditLogFilters.action    = document.getElementById('audit-filter-action')?.value || '';
+    auditLogFilters.date_from = document.getElementById('audit-filter-from')?.value  || '';
+    auditLogFilters.date_to   = document.getElementById('audit-filter-to')?.value    || '';
+    auditLogPage = 1;
+    loadAuditLog();
+  }
+
+  function clearAuditFilters() {
+    auditLogFilters = { action: '', date_from: '', date_to: '' };
+    const sel  = document.getElementById('audit-filter-action');
+    const from = document.getElementById('audit-filter-from');
+    const to   = document.getElementById('audit-filter-to');
+    if (sel)  sel.value  = '';
+    if (from) from.value = '';
+    if (to)   to.value   = '';
+    auditLogPage = 1;
+    loadAuditLog();
+  }
+
+  function exportAuditLogCsv() {
+    const p = new URLSearchParams();
+    if (auditLogFilters.action)    p.set('action',    auditLogFilters.action);
+    if (auditLogFilters.date_from) p.set('date_from', auditLogFilters.date_from);
+    if (auditLogFilters.date_to)   p.set('date_to',   auditLogFilters.date_to);
+    const url = '/api/admin/audit-log/export?' + p.toString();
+    // Use a hidden anchor to trigger the download with session cookie
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = '';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+
+  async function loadAuditLog() {
+    const tbody = document.getElementById('audit-log-tbody');
+    const pag = document.getElementById('audit-log-pagination');
+    if (!tbody || !pag) return;
+
+    tbody.innerHTML = '<tr><td colspan="4" style="color:#aaa;text-align:center">Loading…</td></tr>';
+
+    const res = await adminFetch(`/api/admin/audit-log?${buildAuditLogParams()}`);
+    if (!res.ok) {
+      tbody.innerHTML = '<tr><td colspan="4" style="color:#b91c1c;text-align:center">Failed to load activity.</td></tr>';
+      pag.innerHTML = '';
+      return;
+    }
+
+    const data = await res.json();
+    if (!data.items || !data.items.length) {
+      tbody.innerHTML = '<tr><td colspan="4" style="color:#aaa;text-align:center">No activity yet.</td></tr>';
+      pag.innerHTML = '';
+      return;
+    }
+
+    tbody.innerHTML = data.items.map(entry => `
+      <tr>
+        <td style="font-size:12px;white-space:nowrap">${fmtDate(entry.created_at)}</td>
+        <td><code>${escHtml(entry.action)}</code></td>
+        <td style="font-size:12px">${entry.actor_key_name ? escHtml(entry.actor_key_name) : (entry.actor_key_id ? `Key #${entry.actor_key_id}` : '—')}</td>
+        <td style="font-size:12px;max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(JSON.stringify(entry.metadata || {}))}">${escHtml(fmtAuditMetadata(entry))}</td>
+      </tr>
+    `).join('');
+
+    const totalPages = Math.max(1, Math.ceil((data.total || 0) / auditLogLimit));
+    pag.innerHTML = `
+      <button class="btn btn-secondary btn-small" onclick="auditLogGo(${auditLogPage - 1})" ${auditLogPage <= 1 ? 'disabled' : ''}>← Prev</button>
+      <span>Page ${auditLogPage} of ${totalPages} (${data.total || 0} entries)</span>
+      <button class="btn btn-secondary btn-small" onclick="auditLogGo(${auditLogPage + 1})" ${auditLogPage >= totalPages ? 'disabled' : ''}>Next →</button>`;
+  }
+
+  function auditLogGo(nextPage) {
+    auditLogPage = Math.max(1, nextPage);
+    loadAuditLog();
+  }
+
   // ── Init ─────────────────────────────────────────────────
-  loadDashboard();
+  async function initAdmin() {
+    const hasAccess = await ensureAdminPageAccess();
+    if (!hasAccess) return;
+    loadDashboard();
+  }
+
+  window.addEventListener('ourtube-admin-mode-changed', () => {
+    initAdmin().catch(() => {});
+  });
+
+  initAdmin().catch(() => {});
   </script>
 </body>
 </html>

@@ -12,8 +12,11 @@ const rateLimit = require('express-rate-limit');
 
 const { initDb, getDb } = require('./db');
 const apiRouter = require('./routes/api');
+const adminAuthRouter = require('./routes/admin-auth');
 const adminApiRouter = require('./routes/admin-api');
 const streamRouter = require('./routes/stream');
+const { requireAdminAuth } = require('./admin-auth');
+const { canAccessFromRow } = require('./visibility');
 
 const PORT = parseInt(process.env.PORT) || 3000;
 const DATA_DIR = process.env.DATA_DIR || '/data';
@@ -35,7 +38,8 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 
 // API routes
 app.use('/api', apiLimiter, apiRouter);
-app.use('/api/admin', adminLimiter, adminApiRouter);
+app.use('/api/admin/auth', adminLimiter, adminAuthRouter);
+app.use('/api/admin', adminLimiter, requireAdminAuth, adminApiRouter);
 
 // Stream route (video streaming with range support)
 app.use('/stream', streamLimiter, streamRouter);
@@ -43,12 +47,18 @@ app.use('/stream', streamLimiter, streamRouter);
 // Thumbnail serving
 app.get('/thumbnail/:id', streamLimiter, (req, res) => {
   const db = getDb();
-  const row = db.prepare('SELECT thumbnail_path FROM media WHERE id = ?').get(req.params.id);
+  const row = db.prepare(
+    `SELECT m.thumbnail_path, m.visibility AS media_visibility, sl.visibility AS source_visibility
+       FROM media m
+       LEFT JOIN source_locations sl ON sl.id = m.source_location_id
+      WHERE m.id = ?`
+  ).get(req.params.id);
   if (!row || !row.thumbnail_path) {
     return res.status(404).sendFile(path.join(__dirname, '..', 'public', 'img', 'no-thumb.svg'), err => {
       if (err) res.status(404).end();
     });
   }
+  if (!canAccessFromRow(row, req)) return res.status(404).end();
   if (!fs.existsSync(row.thumbnail_path)) return res.status(404).end();
   res.sendFile(row.thumbnail_path);
 });
@@ -56,8 +66,14 @@ app.get('/thumbnail/:id', streamLimiter, (req, res) => {
 // Photo serving (with optional resize)
 app.get('/photo/:id', streamLimiter, async (req, res) => {
   const db = getDb();
-  const row = db.prepare("SELECT file_path FROM media WHERE id = ? AND type = 'photo'").get(req.params.id);
+  const row = db.prepare(
+    `SELECT m.file_path, m.visibility AS media_visibility, sl.visibility AS source_visibility
+       FROM media m
+       LEFT JOIN source_locations sl ON sl.id = m.source_location_id
+      WHERE m.id = ? AND m.type = 'photo'`
+  ).get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Not found' });
+  if (!canAccessFromRow(row, req)) return res.status(404).json({ error: 'Not found' });
   if (!fs.existsSync(row.file_path)) return res.status(404).json({ error: 'File not found' });
 
   const widthParam = parseInt(req.query.width);
