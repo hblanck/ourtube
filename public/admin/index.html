@@ -25,6 +25,7 @@
     <nav class="admin-nav">
       <div class="admin-nav-title">Admin</div>
       <a class="admin-nav-link active" data-tab="dashboard">📊 Dashboard</a>
+      <a class="admin-nav-link" data-tab="infrastructure">🖥 Infrastructure</a>
       <a class="admin-nav-link" data-tab="locations">📁 Source Locations</a>
       <a class="admin-nav-link" data-tab="library">🗂 Media Library</a>
       <a class="admin-nav-link" data-tab="settings">⚙️ Settings</a>
@@ -75,6 +76,36 @@
                 <tr><td colspan="6" class="table-empty-cell">No active sessions</td></tr>
               </tbody>
             </table>
+          </div>
+        </div>
+
+        <div class="admin-block-mb-8">
+          <div class="admin-toolbar-row-tight">
+            <div class="admin-small-caps-label admin-no-margin">Environment Snapshot</div>
+            <div class="admin-toolbar-row-tight">
+              <button type="button" class="btn btn-secondary btn-small" onclick="openAdminTab('infrastructure')">Open Infrastructure</button>
+              <span id="dashboard-system-summary-updated" class="admin-meta-subtle"></span>
+            </div>
+          </div>
+          <div id="dashboard-system-summary" class="system-summary-grid">
+            <div class="system-summary-card">
+              <div class="system-summary-label">Loading…</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="admin-section" id="tab-infrastructure">
+        <div class="admin-toolbar-row admin-toolbar-row-between">
+          <h2 class="admin-no-margin">Infrastructure</h2>
+          <div class="admin-toolbar-row-tight">
+            <button type="button" class="btn btn-secondary btn-small" onclick="loadSystemInfo()">Refresh</button>
+            <span id="system-info-updated" class="admin-meta-subtle"></span>
+          </div>
+        </div>
+        <div id="system-info-grid" class="system-info-grid">
+          <div class="system-info-card">
+            <div class="system-info-card-title">Loading…</div>
           </div>
         </div>
       </section>
@@ -369,6 +400,17 @@
         </div>
 
         <div class="form-group">
+          <label class="form-label">Thumbnail</label>
+          <div class="media-thumbnail-editor">
+            <img id="media-thumbnail-preview" class="media-thumbnail-preview" src="/img/no-thumb.svg" alt="Current thumbnail" />
+            <div class="media-thumbnail-actions">
+              <button type="button" class="btn btn-secondary btn-small" onclick="regenerateMediaThumbnail()">Choose Random Frame</button>
+              <span class="cell-xs cell-secondary">For virtual videos, this picks a random stitched segment and frame.</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group">
           <label class="form-label">People / Faces</label>
           <div id="face-list-edit" class="admin-list-gap-bottom"></div>
           <div class="admin-actions-row">
@@ -439,10 +481,65 @@
     return h?`${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`:`${m}:${String(sec).padStart(2,'0')}`;
   }
   function fmtDate(s) { try { return s ? new Date(s).toLocaleString() : '—'; } catch { return s||'—'; } }
+  function fmtBool(v) { return v ? 'Yes' : 'No'; }
+  function fmtInteger(v) { return Number.isFinite(Number(v)) ? Number(v).toLocaleString() : '—'; }
   function fmtVisibility(v) {
     if (v === 'admin') return 'Admin only';
     if (v === 'none') return 'None';
     return 'All';
+  }
+  function fmtUptime(totalSeconds) {
+    const seconds = Math.max(0, Number(totalSeconds) || 0);
+    const days = Math.floor(seconds / 86400);
+    const hours = Math.floor((seconds % 86400) / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    if (days) return `${days}d ${hours}h ${minutes}m`;
+    if (hours) return `${hours}h ${minutes}m`;
+    if (minutes) return `${minutes}m`;
+    return `${seconds}s`;
+  }
+  function fmtPathSummary(entry) {
+    if (!entry) return '—';
+    const status = [];
+    status.push(entry.exists ? 'exists' : 'missing');
+    if (entry.exists) status.push(entry.writable ? 'rw' : 'ro');
+    return `${entry.path || '—'} (${status.join(', ')})`;
+  }
+  function fmtStorageSummary(storage) {
+    if (!storage || !storage.totalBytes) return '—';
+    const pct = storage.totalBytes > 0 ? Math.round((storage.usedBytes / storage.totalBytes) * 100) : 0;
+    return `${fmtSize(storage.usedBytes)} used / ${fmtSize(storage.totalBytes)} total (${pct}%)`;
+  }
+  function fmtNodeVersion(version) {
+    return String(version || '').replace(/^v/, '') || '—';
+  }
+  function fmtScanSchedule(schedule) {
+    if (!schedule || !schedule.enabledLocations) return 'No enabled sources';
+    if (schedule.dueNow > 0) return `${schedule.dueNow} source(s) due now`;
+    if (schedule.nextDueAt) return `Next: ${fmtDate(schedule.nextDueAt)}`;
+    return 'No upcoming scans';
+  }
+  function renderSystemSummaryCard(label, value, meta) {
+    return `
+      <div class="system-summary-card">
+        <div class="system-summary-label">${escHtml(label)}</div>
+        <div class="system-summary-value">${escHtml(value == null || value === '' ? '—' : String(value))}</div>
+        <div class="system-summary-meta">${escHtml(meta == null || meta === '' ? '—' : String(meta))}</div>
+      </div>`;
+  }
+  function renderSystemInfoRows(rows) {
+    return rows.map(([label, value]) => `
+      <div class="system-info-row">
+        <div class="system-info-key">${escHtml(label)}</div>
+        <div class="system-info-value">${escHtml(value == null || value === '' ? '—' : String(value))}</div>
+      </div>`).join('');
+  }
+  function renderSystemInfoCard(title, rows) {
+    return `
+      <section class="system-info-card">
+        <div class="system-info-card-title">${escHtml(title)}</div>
+        ${renderSystemInfoRows(rows)}
+      </section>`;
   }
 
   async function adminFetch(url, options = {}) {
@@ -497,19 +594,23 @@
   });
 
   // ── Tabs ─────────────────────────────────────────────────
+  function openAdminTab(tab) {
+    document.querySelectorAll('.admin-nav-link').forEach(l => l.classList.toggle('active', l.dataset.tab === tab));
+    document.querySelectorAll('.admin-section').forEach(s => s.classList.toggle('active', s.id === 'tab-' + tab));
+
+    if (tab === 'dashboard') loadDashboard();
+    if (tab === 'infrastructure') loadSystemInfo();
+    if (tab === 'locations') loadLocations();
+    if (tab === 'library') {
+      libPage = 1;
+      loadLibrarySourceLocationFilter().then(() => loadLibrary());
+    }
+    if (tab === 'settings') loadSettings();
+  }
+
   document.querySelectorAll('.admin-nav-link').forEach(link => {
     link.addEventListener('click', () => {
-      document.querySelectorAll('.admin-nav-link').forEach(l => l.classList.remove('active'));
-      document.querySelectorAll('.admin-section').forEach(s => s.classList.remove('active'));
-      link.classList.add('active');
-      document.getElementById('tab-' + link.dataset.tab).classList.add('active');
-
-      if (link.dataset.tab === 'locations') loadLocations();
-      if (link.dataset.tab === 'library') {
-        libPage = 1;
-        loadLibrarySourceLocationFilter().then(() => loadLibrary());
-      }
-      if (link.dataset.tab === 'settings') loadSettings();
+      openAdminTab(link.dataset.tab);
     });
   });
 
@@ -517,7 +618,7 @@
   const urlParams = new URLSearchParams(location.search);
   const editId = urlParams.get('edit');
   if (editId) {
-    document.querySelector('[data-tab="library"]').click();
+    openAdminTab('library');
     openMediaEdit(editId);
   }
 
@@ -535,6 +636,111 @@
 
     pollScanStatus();
     pollActiveSessions();
+    loadSystemInfo();
+  }
+
+  async function loadSystemInfo() {
+    const grid = document.getElementById('system-info-grid');
+    const summary = document.getElementById('dashboard-system-summary');
+    const updated = document.getElementById('system-info-updated');
+    const summaryUpdated = document.getElementById('dashboard-system-summary-updated');
+    if (!grid) return;
+
+    try {
+      const res = await adminFetch('/api/admin/system-info');
+      if (!res.ok) throw new Error(`Request failed (${res.status})`);
+
+      const info = await res.json();
+      const summaryCards = [
+        renderSystemSummaryCard('Runtime', info.runtime?.environment || '—', `Node ${fmtNodeVersion(info.runtime?.nodeVersion)} on ${info.runtime?.platform || '—'}`),
+        renderSystemSummaryCard('Media Mount', info.paths?.mediaRoot?.exists ? (info.paths?.mediaRoot?.writable ? 'Read / write' : 'Read only') : 'Missing', info.paths?.mediaRoot?.path || '—'),
+        renderSystemSummaryCard('Data Volume', fmtStorageSummary(info.paths?.dataDir?.storage), `DB ${fmtSize(info.paths?.databaseFileSizeBytes)}`),
+        renderSystemSummaryCard('Scan Scheduler', fmtScanSchedule(info.scan?.schedule), `${fmtInteger(info.scan?.schedule?.enabledLocations)} enabled source(s)`),
+      ];
+      const cards = [
+        renderSystemInfoCard('Application', [
+          ['Name', info.app?.name],
+          ['Version', info.app?.version],
+          ['Environment', info.runtime?.environment],
+          ['Node.js', info.runtime?.nodeVersion],
+          ['Uptime', fmtUptime(info.runtime?.uptimeSeconds)],
+        ]),
+        renderSystemInfoCard('Runtime', [
+          ['Host', info.runtime?.hostname],
+          ['Platform', `${info.runtime?.platform || '—'} / ${info.runtime?.arch || '—'}`],
+          ['Port', info.runtime?.port],
+          ['PID', info.runtime?.pid],
+          ['CPU cores', fmtInteger(info.runtime?.cpuCount)],
+          ['Working directory', info.runtime?.cwd],
+          ['Containerized', fmtBool(info.runtime?.containerized)],
+        ]),
+        renderSystemInfoCard('Process', [
+          ['Process uptime', fmtUptime(info.runtime?.uptimeSeconds)],
+          ['OS uptime', fmtUptime(info.runtime?.osUptimeSeconds)],
+          ['RSS memory', fmtSize(info.runtime?.memoryUsage?.rssBytes)],
+          ['Heap used', fmtSize(info.runtime?.memoryUsage?.heapUsedBytes)],
+          ['Heap total', fmtSize(info.runtime?.memoryUsage?.heapTotalBytes)],
+          ['External memory', fmtSize(info.runtime?.memoryUsage?.externalBytes)],
+        ]),
+        renderSystemInfoCard('Paths', [
+          ['Data directory', fmtPathSummary(info.paths?.dataDir)],
+          ['Database', fmtPathSummary(info.paths?.database)],
+          ['Media root', fmtPathSummary(info.paths?.mediaRoot)],
+        ]),
+        renderSystemInfoCard('Storage', [
+          ['Data volume', fmtStorageSummary(info.paths?.dataDir?.storage)],
+          ['Media volume', fmtStorageSummary(info.paths?.mediaRoot?.storage)],
+          ['Database file', fmtSize(info.paths?.databaseFileSizeBytes)],
+        ]),
+        renderSystemInfoCard('Features', [
+          ['Photos enabled', fmtBool(info.features?.photosEnabled)],
+          ['Face detection', fmtBool(info.features?.faceDetectionEnabled)],
+          ['Scan on startup', fmtBool(info.features?.scanOnStartup)],
+          ['Thumbnail size', info.features?.thumbnailWidth && info.features?.thumbnailHeight
+            ? `${info.features.thumbnailWidth} × ${info.features.thumbnailHeight}`
+            : '—'],
+        ]),
+        renderSystemInfoCard('Library', [
+          ['Source locations', `${info.library?.sourceLocations || 0} total / ${info.library?.enabledSourceLocations || 0} enabled`],
+          ['Source entries', info.library?.sourceEntries || 0],
+          ['Media items', `${info.library?.mediaItems || 0} (${info.library?.videos || 0} videos, ${info.library?.photos || 0} photos)`],
+          ['Faces / skipped', `${info.library?.faces || 0} faces / ${info.library?.skippedFiles || 0} skipped`],
+          ['Active admin keys', info.library?.activeAdminKeys || 0],
+        ]),
+        renderSystemInfoCard('Scan Scheduling', [
+          ['Enabled sources', info.scan?.schedule?.enabledLocations || 0],
+          ['Due now', info.scan?.schedule?.dueNow || 0],
+          ['Never scanned', info.scan?.schedule?.neverScanned || 0],
+          ['Next due', info.scan?.schedule?.nextDueAt ? `${fmtDate(info.scan.schedule.nextDueAt)}${info.scan.schedule.nextDueLocation ? ` (${info.scan.schedule.nextDueLocation})` : ''}` : '—'],
+          ['Interval range', (info.scan?.schedule?.minIntervalSeconds || info.scan?.schedule?.maxIntervalSeconds)
+            ? `${fmtInteger(info.scan.schedule.minIntervalSeconds)}s to ${fmtInteger(info.scan.schedule.maxIntervalSeconds)}s`
+            : '—'],
+        ]),
+      ];
+
+      if (summary) summary.innerHTML = summaryCards.join('');
+      grid.innerHTML = cards.join('');
+      const refreshedAt = `Refreshed ${new Date().toLocaleTimeString()}`;
+      if (updated) updated.textContent = refreshedAt;
+      if (summaryUpdated) summaryUpdated.textContent = refreshedAt;
+    } catch (error) {
+      console.error(error);
+      if (summary) {
+        summary.innerHTML = `
+          <div class="system-summary-card">
+            <div class="system-summary-label">Environment Snapshot</div>
+            <div class="system-summary-value">Unavailable</div>
+            <div class="system-summary-meta">Failed to load system information.</div>
+          </div>`;
+      }
+      grid.innerHTML = `
+        <div class="system-info-card">
+          <div class="system-info-card-title">Application &amp; Infrastructure</div>
+          <div class="system-info-empty">Failed to load system information.</div>
+        </div>`;
+      if (updated) updated.textContent = 'Unavailable';
+      if (summaryUpdated) summaryUpdated.textContent = 'Unavailable';
+    }
   }
 
   let scanPollTimer = null;
@@ -980,8 +1186,19 @@
     tbody.innerHTML = data.items.map(m => `
       <tr>
         <td><input type="checkbox" class="library-select-row" data-id="${escHtml(m.id)}" ${selectedLibraryIds.has(String(m.id)) ? 'checked' : ''} /></td>
-        <td class="cell-ellipsis-240">
-          <strong>${escHtml(m.friendly_name || m.file_name)}</strong>
+        <td>
+          <div class="library-media-cell">
+            <img
+              class="library-media-thumb"
+              src="${m.thumbnail_path ? `/thumbnail/${escHtml(m.thumbnail_media_id || m.id)}` : '/img/no-thumb.svg'}"
+              alt=""
+              loading="lazy"
+              onerror="this.onerror=null;this.src='/img/no-thumb.svg';"
+            />
+            <div class="cell-ellipsis-240">
+              <strong>${escHtml(m.friendly_name || m.file_name)}</strong>
+            </div>
+          </div>
         </td>
         <td>${m.type === 'video' ? '🎬' : '📷'} ${m.type}</td>
         <td>${m.year || '—'}</td>
@@ -1168,6 +1385,17 @@
   let currentMediaId = null;
   let currentFaces = [];
 
+  function getMediaThumbnailUrl(media) {
+    const thumbnailMediaId = media && media.thumbnail_media_id ? media.thumbnail_media_id : media && media.id;
+    if (!thumbnailMediaId || !media || !media.thumbnail_path) return '/img/no-thumb.svg';
+    return `/thumbnail/${encodeURIComponent(thumbnailMediaId)}?ts=${Date.now()}`;
+  }
+
+  function updateMediaThumbnailPreview(media) {
+    const preview = document.getElementById('media-thumbnail-preview');
+    preview.src = getMediaThumbnailUrl(media);
+  }
+
   async function openMediaEdit(id) {
     currentMediaId = id;
     currentFaces = [];
@@ -1187,8 +1415,27 @@
 
     currentFaces = m.faces || [];
     renderFaceList();
+    updateMediaThumbnailPreview(m);
 
     openModal('media-modal');
+  }
+
+  async function regenerateMediaThumbnail() {
+    if (!currentMediaId) return;
+
+    const res = await adminFetch(`/api/admin/media/${encodeURIComponent(currentMediaId)}/thumbnail`, {
+      method: 'POST'
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      alert(`Thumbnail update failed (${res.status}): ${errData.error || 'Unknown error'}`);
+      return;
+    }
+
+    const data = await res.json();
+    const preview = document.getElementById('media-thumbnail-preview');
+    preview.src = `${data.thumbnail_url}?ts=${Date.now()}`;
+    await loadLibrary();
   }
 
   function renderFaceList() {

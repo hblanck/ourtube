@@ -2,15 +2,20 @@
 
 const express = require('express');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { getDb } = require('../db');
 const { scanLocation, scanAllLocations, getScanStatus } = require('../scanner');
 const { getActiveSessions } = require('../sessions');
+const { getRandomVideoTimemark, getThumbnailPath, generateVideoThumbnail, generatePhotoThumbnail } = require('../thumbnails');
 const { normalizeVisibility } = require('../visibility');
 const { parseVirtualMediaId, getStitchGroupPath } = require('../virtual-media');
+const packageJson = require('../../package.json');
 
 const router = express.Router();
 const MEDIA_ROOT = path.resolve('/media');
+const DATA_DIR = path.resolve(process.env.DATA_DIR || '/data');
+const DB_PATH = path.join(DATA_DIR, 'ourtube.db');
 const MEDIA_FILE_EXTENSIONS = new Set([
   'mp4', 'mkv', 'avi', 'mov', 'wmv', 'flv', 'webm', 'm4v', 'mpg', 'mpeg', '3gp',
   'jpg', 'jpeg', 'png', 'gif', 'bmp', 'tiff', 'tif', 'heic', 'webp', 'raw', 'arw', 'cr2', 'nef'
@@ -42,6 +47,104 @@ function isWithinMediaRoot(targetPath) {
 function isMediaFilePath(filePath) {
   const ext = path.extname(filePath).toLowerCase().replace('.', '');
   return MEDIA_FILE_EXTENSIONS.has(ext);
+}
+
+function canAccessPath(targetPath, mode) {
+  try {
+    fs.accessSync(targetPath, mode);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function getStorageSummary(targetPath) {
+  if (typeof fs.statfsSync !== 'function') return null;
+
+  try {
+    const stats = fs.statfsSync(targetPath);
+    const blockSize = Number(stats.bsize || stats.frsize || 0);
+    const totalBytes = blockSize * Number(stats.blocks || 0);
+    const freeBytes = blockSize * Number(stats.bavail ?? stats.bfree ?? 0);
+    const usedBytes = Math.max(0, totalBytes - freeBytes);
+
+    return {
+      totalBytes,
+      usedBytes,
+      freeBytes,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function buildPathSummary(targetPath) {
+  const resolvedPath = path.resolve(targetPath);
+  const exists = fs.existsSync(resolvedPath);
+
+  return {
+    path: toPosixPath(resolvedPath),
+    exists,
+    readable: exists ? canAccessPath(resolvedPath, fs.constants.R_OK) : false,
+    writable: exists ? canAccessPath(resolvedPath, fs.constants.W_OK) : false,
+    storage: exists ? getStorageSummary(resolvedPath) : null,
+  };
+}
+
+function getSettingsMap(db, keys) {
+  const placeholders = keys.map(() => '?').join(', ');
+  const rows = db.prepare(`SELECT key, value FROM settings WHERE key IN (${placeholders})`).all(...keys);
+  const settings = {};
+  for (const row of rows) settings[row.key] = row.value;
+  return settings;
+}
+
+function parseSqliteDate(value) {
+  if (!value) return null;
+  const parsed = Date.parse(`${value}Z`);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+function getScanScheduleSummary(db) {
+  const rows = db.prepare(
+    `SELECT name, scan_interval, last_scanned
+       FROM source_locations
+      WHERE enabled = 1
+      ORDER BY name ASC`
+  ).all();
+
+  const now = Date.now();
+  let dueNow = 0;
+  let neverScanned = 0;
+  let nextDue = null;
+  let minIntervalSeconds = null;
+  let maxIntervalSeconds = null;
+
+  for (const row of rows) {
+    const intervalSeconds = Math.max(0, Number(row.scan_interval) || 0);
+    const lastScannedMs = parseSqliteDate(row.last_scanned);
+    const dueAtMs = lastScannedMs == null ? now : lastScannedMs + (intervalSeconds * 1000);
+
+    if (row.last_scanned == null) neverScanned++;
+    if (dueAtMs <= now) {
+      dueNow++;
+    } else if (!nextDue || dueAtMs < nextDue.atMs) {
+      nextDue = { atMs: dueAtMs, name: row.name };
+    }
+
+    minIntervalSeconds = minIntervalSeconds == null ? intervalSeconds : Math.min(minIntervalSeconds, intervalSeconds);
+    maxIntervalSeconds = maxIntervalSeconds == null ? intervalSeconds : Math.max(maxIntervalSeconds, intervalSeconds);
+  }
+
+  return {
+    enabledLocations: rows.length,
+    dueNow,
+    neverScanned,
+    minIntervalSeconds,
+    maxIntervalSeconds,
+    nextDueAt: nextDue ? new Date(nextDue.atMs).toISOString() : null,
+    nextDueLocation: nextDue ? nextDue.name : null,
+  };
 }
 
 function normalizeEntriesInput(entries, fallbackPath) {
@@ -189,6 +292,81 @@ router.get('/skipped-files', (req, res) => {
   ).all(search, search, search, pageLimit, offset);
 
   res.json({ total, page: safePage, limit: pageLimit, items });
+});
+
+// GET /api/admin/system-info
+router.get('/system-info', (req, res) => {
+  const db = getDb();
+  const settings = getSettingsMap(db, [
+    'photos_enabled',
+    'face_detection_enabled',
+    'scan_on_startup',
+    'thumbnail_width',
+    'thumbnail_height',
+  ]);
+  const dbFileStats = fs.existsSync(DB_PATH) ? fs.statSync(DB_PATH) : null;
+  const processMemory = process.memoryUsage();
+  const library = db.prepare(
+    `SELECT
+        (SELECT COUNT(*) FROM source_locations) AS sourceLocations,
+        (SELECT COUNT(*) FROM source_locations WHERE enabled = 1) AS enabledSourceLocations,
+        (SELECT COUNT(*) FROM source_location_entries) AS sourceEntries,
+        (SELECT COUNT(*) FROM media) AS mediaItems,
+        (SELECT COUNT(*) FROM media WHERE type = 'video') AS videos,
+        (SELECT COUNT(*) FROM media WHERE type = 'photo') AS photos,
+        (SELECT COUNT(*) FROM faces) AS faces,
+        (SELECT COUNT(*) FROM skipped_files) AS skippedFiles,
+        (SELECT COUNT(*) FROM admin_keys WHERE revoked_at IS NULL) AS activeAdminKeys`
+  ).get();
+
+  const containerized = fs.existsSync('/.dockerenv') || Boolean(process.env.KUBERNETES_SERVICE_HOST);
+  const scanStatus = getScanStatus();
+
+  res.json({
+    app: {
+      name: packageJson.name,
+      version: packageJson.version,
+      description: packageJson.description || '',
+    },
+    runtime: {
+      nodeVersion: process.version,
+      environment: process.env.NODE_ENV || 'development',
+      port: parseInt(process.env.PORT, 10) || 3000,
+      pid: process.pid,
+      uptimeSeconds: Math.floor(process.uptime()),
+      cwd: toPosixPath(process.cwd()),
+      platform: process.platform,
+      arch: process.arch,
+      hostname: os.hostname(),
+      cpuCount: Array.isArray(os.cpus()) ? os.cpus().length : null,
+      osUptimeSeconds: Math.floor(os.uptime()),
+      containerized,
+      memoryUsage: {
+        rssBytes: processMemory.rss,
+        heapUsedBytes: processMemory.heapUsed,
+        heapTotalBytes: processMemory.heapTotal,
+        externalBytes: processMemory.external,
+      },
+    },
+    paths: {
+      dataDir: buildPathSummary(DATA_DIR),
+      database: buildPathSummary(DB_PATH),
+      mediaRoot: buildPathSummary(MEDIA_ROOT),
+      databaseFileSizeBytes: dbFileStats ? dbFileStats.size : null,
+    },
+    features: {
+      photosEnabled: settings.photos_enabled !== 'false',
+      faceDetectionEnabled: settings.face_detection_enabled === 'true',
+      scanOnStartup: settings.scan_on_startup === 'true',
+      thumbnailWidth: parseInt(settings.thumbnail_width, 10) || null,
+      thumbnailHeight: parseInt(settings.thumbnail_height, 10) || null,
+    },
+    library,
+    scan: {
+      ...scanStatus,
+      schedule: getScanScheduleSummary(db),
+    },
+  });
 });
 
 // POST /api/admin/locations
@@ -446,6 +624,102 @@ router.put('/media/:id', (req, res) => {
   );
 
   res.json(db.prepare('SELECT * FROM media WHERE id = ?').get(req.params.id));
+});
+
+// POST /api/admin/media/:id/thumbnail
+router.post('/media/:id/thumbnail', async (req, res) => {
+  const db = getDb();
+  const virtualRef = parseVirtualMediaId(req.params.id);
+
+  try {
+    if (virtualRef) {
+      const segmentRows = db.prepare(
+        `SELECT m.id, m.type, m.file_path, m.duration, m.thumbnail_path,
+                sl.stitch_directories, sl.path AS source_location_path,
+                (SELECT sle.entry_path FROM source_location_entries sle
+                  WHERE sle.source_location_id = m.source_location_id
+                    AND sle.entry_type = 'directory'
+                    AND (m.file_path = sle.entry_path OR m.file_path LIKE sle.entry_path || '/%')
+                  ORDER BY LENGTH(sle.entry_path) DESC LIMIT 1) AS source_entry_path,
+                (SELECT sle.entry_type FROM source_location_entries sle
+                  WHERE sle.source_location_id = m.source_location_id
+                    AND sle.entry_type = 'directory'
+                    AND (m.file_path = sle.entry_path OR m.file_path LIKE sle.entry_path || '/%')
+                  ORDER BY LENGTH(sle.entry_path) DESC LIMIT 1) AS source_entry_type
+           FROM media m
+           LEFT JOIN source_locations sl ON sl.id = m.source_location_id
+          WHERE m.source_location_id = ? AND m.type = 'video'`
+      ).all(virtualRef.sourceLocationId);
+
+      const matchingSegments = segmentRows.filter(
+        row => getStitchGroupPath(row) === virtualRef.groupPath
+      );
+      if (!matchingSegments.length) return res.status(404).json({ error: 'Not found' });
+
+      const targetRow = matchingSegments[0];
+      const sourceRow = matchingSegments[Math.floor(Math.random() * matchingSegments.length)];
+      const outputPath = targetRow.thumbnail_path || getThumbnailPath(targetRow.id);
+      const timemark = getRandomVideoTimemark(sourceRow.duration);
+
+      await generateVideoThumbnail(sourceRow.file_path, outputPath, timemark);
+
+      db.prepare('UPDATE media SET thumbnail_path = ? WHERE id = ?').run(outputPath, targetRow.id);
+
+      logAdminAudit(db, req, 'media.thumbnail.regenerate', {
+        mediaId: req.params.id,
+        isVirtual: true,
+        targetMediaId: targetRow.id,
+        sourceMediaId: sourceRow.id,
+        timemark,
+      });
+
+      return res.json({
+        success: true,
+        thumbnail_media_id: targetRow.id,
+        thumbnail_url: `/thumbnail/${targetRow.id}`,
+      });
+    }
+
+    const row = db.prepare('SELECT id, type, file_path, duration, thumbnail_path FROM media WHERE id = ?').get(req.params.id);
+    if (!row) return res.status(404).json({ error: 'Not found' });
+
+    const outputPath = row.thumbnail_path || getThumbnailPath(row.id);
+    if (row.type === 'video') {
+      const timemark = getRandomVideoTimemark(row.duration);
+      await generateVideoThumbnail(row.file_path, outputPath, timemark);
+      db.prepare('UPDATE media SET thumbnail_path = ? WHERE id = ?').run(outputPath, row.id);
+
+      logAdminAudit(db, req, 'media.thumbnail.regenerate', {
+        mediaId: req.params.id,
+        isVirtual: false,
+        timemark,
+      });
+
+      return res.json({
+        success: true,
+        thumbnail_media_id: row.id,
+        thumbnail_url: `/thumbnail/${row.id}`,
+      });
+    }
+
+    await generatePhotoThumbnail(row.file_path, outputPath);
+    db.prepare('UPDATE media SET thumbnail_path = ? WHERE id = ?').run(outputPath, row.id);
+
+    logAdminAudit(db, req, 'media.thumbnail.regenerate', {
+      mediaId: req.params.id,
+      isVirtual: false,
+      type: row.type,
+    });
+
+    return res.json({
+      success: true,
+      thumbnail_media_id: row.id,
+      thumbnail_url: `/thumbnail/${row.id}`,
+    });
+  } catch (err) {
+    console.error('[admin] Thumbnail regeneration error:', err);
+    return res.status(500).json({ error: 'Thumbnail generation failed' });
+  }
 });
 
 // POST /api/admin/media/bulk-visibility

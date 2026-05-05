@@ -205,6 +205,12 @@
       if (!res.ok) throw new Error(data.error || 'Login failed');
       status = data;
       closeModal();
+
+      if (!isAdminPage()) {
+        window.location.assign('/admin/');
+        return;
+      }
+
       renderHeaderControls();
       dispatchStatusChanged();
     } catch (err) {

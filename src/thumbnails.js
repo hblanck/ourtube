@@ -16,6 +16,19 @@ function getThumbnailPath(mediaId) {
   return path.join(THUMB_DIR, `${mediaId}.jpg`);
 }
 
+function getRandomVideoTimemark(durationSeconds) {
+  const duration = Number(durationSeconds);
+  if (!Number.isFinite(duration) || duration <= 0) return '10%';
+
+  const safeStart = Math.min(5, duration * 0.1);
+  const safeEnd = Math.max(safeStart, duration - Math.min(5, duration * 0.1));
+  const randomSecond = safeEnd > safeStart
+    ? safeStart + Math.random() * (safeEnd - safeStart)
+    : duration * Math.random();
+
+  return Math.max(0, randomSecond).toFixed(3);
+}
+
 function generateVideoThumbnail(videoPath, outputPath, timemark = '10%') {
   return new Promise((resolve, reject) => {
     ensureThumbDir();
@@ -44,4 +57,9 @@ async function generatePhotoThumbnail(photoPath, outputPath) {
   return outputPath;
 }
 
-module.exports = { getThumbnailPath, generateVideoThumbnail, generatePhotoThumbnail };
+module.exports = {
+  getThumbnailPath,
+  getRandomVideoTimemark,
+  generateVideoThumbnail,
+  generatePhotoThumbnail
+};

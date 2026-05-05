@@ -3,14 +3,14 @@
 
 (function () {
   const FORCE_TYPE = window.OURTUBE_FORCE_TYPE || null;
-  const limit = 24;
-  let page = 1;
+  const API_PAGE_LIMIT = 100;
   let loading = false;
-  let hasMore = true;
   let adminModeEnabled = false;
   let uiSettings = { photosEnabled: true };
   let currentFilters = { type: FORCE_TYPE || '', year: '', location: '', source_location_id: '', sort: 'indexed_at' };
   const SIDEBAR_STATE_KEY = 'ourtube.sidebar.collapsed';
+  const FEATURED_SECTION_VISIBLE_KEY = 'ourtube.home.featured.visible';
+  let featuredSectionVisible = true;
   let yearFilterLoadVersion = 0;
   let locationFilterLoadVersion = 0;
   let sourceLocationFilterLoadVersion = 0;
@@ -546,6 +546,55 @@
     window.addEventListener('resize', () => applyState(collapsed));
   }
 
+  function readFeaturedSectionPreference() {
+    try {
+      const stored = localStorage.getItem(FEATURED_SECTION_VISIBLE_KEY);
+      return stored !== '0';
+    } catch {
+      return true;
+    }
+  }
+
+  function persistFeaturedSectionPreference(visible) {
+    try {
+      localStorage.setItem(FEATURED_SECTION_VISIBLE_KEY, visible ? '1' : '0');
+    } catch {
+      // Ignore storage failures.
+    }
+  }
+
+  function applyFeaturedSectionVisibility() {
+    const section = document.getElementById('featured-section');
+    const grid = document.getElementById('featured-grid');
+    const toggle = document.getElementById('featured-section-toggle');
+    if (!section || !grid || !toggle) return;
+
+    const hasItems = grid.childElementCount > 0;
+    section.style.display = featuredSectionVisible && hasItems ? '' : 'none';
+    grid.hidden = !featuredSectionVisible || !hasItems;
+    toggle.checked = featuredSectionVisible;
+    toggle.setAttribute('aria-checked', featuredSectionVisible ? 'true' : 'false');
+  }
+
+  function bindFeaturedSectionToggle() {
+    const toggle = document.getElementById('featured-section-toggle');
+    if (!toggle || toggle.dataset.bound === '1') return;
+
+    toggle.addEventListener('change', async () => {
+      featuredSectionVisible = !!toggle.checked;
+      persistFeaturedSectionPreference(featuredSectionVisible);
+
+      if (featuredSectionVisible) {
+        await loadFeatured();
+        return;
+      }
+
+      applyFeaturedSectionVisibility();
+    });
+
+    toggle.dataset.bound = '1';
+  }
+
   // ── Card Builder ─────────────────────────────────────────
   function buildCard(item) {
     const card = document.createElement('a');
@@ -566,8 +615,14 @@
     if (previewUrl) card.dataset.previewUrl = previewUrl;
     const isAdminOnlyVisible = adminModeEnabled && (item.visibility === 'admin' || item.source_visibility === 'admin');
     const leftBadges = [];
+    const rightBadges = [];
     if (isAdminOnlyVisible) leftBadges.push('<span class="card-visibility-badge">Admin Only</span>');
     if (item.is_virtual) leftBadges.push('<span class="card-collection-badge card-collection-badge--stitch">Stitched Video</span>');
+    if (adminModeEnabled) {
+      rightBadges.push(`<a class="card-admin-link" href="/admin/?tab=library&edit=${encodeURIComponent(item.id)}" title="Edit in admin">Edit</a>`);
+    }
+    if (item.is_virtual) rightBadges.push(`<span class="card-collection-badge">${item.segment_count} clips</span>`);
+    if (collectionName) rightBadges.push(`<span class="card-collection-badge">${escHtml(collectionName)}</span>`);
 
     card.innerHTML = `
       <div class="card-thumb-wrap">
@@ -577,9 +632,7 @@
         ${isVideo && item.duration ? `<span class="card-duration">${fmtDur(item.duration)}</span>` : ''}
         <span class="card-type-badge">${isVideo ? '🎬' : '📷'}</span>
         ${leftBadges.length ? `<div class="card-left-badges">${leftBadges.join('')}</div>` : ''}
-        ${adminModeEnabled ? `<a class="card-admin-link" href="/admin/?tab=library&edit=${encodeURIComponent(item.id)}" title="Edit in admin">Edit</a>` : ''}
-        ${item.is_virtual ? `<span class="card-collection-badge">${item.segment_count} clips</span>` : ''}
-        ${collectionName ? `<span class="card-collection-badge">${escHtml(collectionName)}</span>` : ''}
+        ${rightBadges.length ? `<div class="card-right-badges">${rightBadges.join('')}</div>` : ''}
       </div>
       <div class="card-info">
         <div class="card-title">${name}</div>
@@ -594,53 +647,65 @@
   // ── Fetch & Render ────────────────────────────────────────
   async function loadMedia(reset = false) {
     if (loading) return;
-    if (!reset && !hasMore) return;
 
     loading = true;
-
-    if (reset) {
-      page = 1;
-      hasMore = true;
-      const grid = document.getElementById('media-grid');
-      if (grid) grid.innerHTML = '';
+    const grid = document.getElementById('media-grid');
+    if (!grid) {
+      loading = false;
+      return;
     }
 
-    const params = new URLSearchParams({
-      page,
-      limit,
-      sort: currentFilters.sort,
-      order: 'DESC'
-    });
-
-    if (currentFilters.type) params.set('type', currentFilters.type);
-    if (currentFilters.year) params.set('year', currentFilters.year);
-    if (currentFilters.location) params.set('location', currentFilters.location);
-    if (currentFilters.source_location_id) params.set('source_location_id', currentFilters.source_location_id);
+    if (reset) {
+      grid.innerHTML = '';
+    }
 
     try {
-      const res = await fetch('/api/media?' + params.toString());
-      const data = await res.json();
+      let nextPage = reset ? 1 : 1;
+      let fetched = 0;
+      let total = 0;
 
-      const grid = document.getElementById('media-grid');
-      data.items.forEach(item => grid && grid.appendChild(buildCard(item)));
+      while (true) {
+        const params = new URLSearchParams({
+          page: nextPage,
+          limit: API_PAGE_LIMIT,
+          sort: currentFilters.sort,
+          order: 'DESC'
+        });
 
-      hasMore = page * limit < data.total;
-      page++;
+        if (currentFilters.type) params.set('type', currentFilters.type);
+        if (currentFilters.year) params.set('year', currentFilters.year);
+        if (currentFilters.location) params.set('location', currentFilters.location);
+        if (currentFilters.source_location_id) params.set('source_location_id', currentFilters.source_location_id);
 
-      const title = document.getElementById('grid-title');
-      if (title && page === 2) {
-        const typeLabel = FORCE_TYPE === 'photo'
-          ? 'Photos'
-          : FORCE_TYPE === 'video'
-            ? 'Videos'
-            : (uiSettings.photosEnabled ? 'All Media' : 'All Videos');
-        title.textContent = `${typeLabel} (${data.total})`;
+        const res = await fetch('/api/media?' + params.toString());
+        const data = await res.json();
+        const items = Array.isArray(data.items) ? data.items : [];
+
+        items.forEach(item => grid.appendChild(buildCard(item)));
+
+        total = Number(data.total) || 0;
+        fetched += items.length;
+
+        if (nextPage === 1) {
+          const title = document.getElementById('grid-title');
+          if (title) {
+            const typeLabel = FORCE_TYPE === 'photo'
+              ? 'Photos'
+              : FORCE_TYPE === 'video'
+                ? 'Videos'
+                : (uiSettings.photosEnabled ? 'All Media' : 'All Videos');
+            title.textContent = `${typeLabel} (${total})`;
+          }
+        }
+
+        if (items.length === 0 || fetched >= total) break;
+        nextPage++;
       }
 
       const btn = document.getElementById('load-more-btn');
       const end = document.getElementById('end-message');
-      if (btn) btn.style.display = hasMore ? 'block' : 'none';
-      if (end) end.style.display = !hasMore && data.total > 0 ? 'block' : 'none';
+      if (btn) btn.style.display = 'none';
+      if (end) end.style.display = 'none';
     } catch (err) {
       console.error('[app] Failed to load media:', err);
     }
@@ -652,6 +717,11 @@
   async function loadFeatured() {
     const grid = document.getElementById('featured-grid');
     if (!grid) return;
+
+    if (!featuredSectionVisible) {
+      applyFeaturedSectionVisibility();
+      return;
+    }
 
     try {
       const params = new URLSearchParams({
@@ -671,11 +741,10 @@
 
       grid.innerHTML = '';
       (data.items || []).forEach(item => grid.appendChild(buildCard(item)));
-
-      const section = document.getElementById('featured-section');
-      if (section) section.style.display = (data.items || []).length === 0 ? 'none' : '';
+      applyFeaturedSectionVisibility();
     } catch (err) {
       console.error('[app] Failed to load featured:', err);
+      applyFeaturedSectionVisibility();
     }
   }
 
@@ -870,14 +939,13 @@
       });
     }
 
-    const btn = document.getElementById('load-more-btn');
-    if (btn) btn.addEventListener('click', () => loadMedia(false));
   }
 
   // ── Init ──────────────────────────────────────────────────
   async function init() {
     await loadUiSettings();
     if (!applyUiSettings()) return;
+    featuredSectionVisible = readFeaturedSectionPreference();
 
     const adminStatus = window.OurTubeAdminMode?.status?.();
     adminModeEnabled = !!adminStatus?.authenticated;
@@ -909,6 +977,7 @@
     });
 
     initSidebarToggle();
+  bindFeaturedSectionToggle();
     bindFilters();
     initMediaCardTooltips();
     initMediaCardPreviews();

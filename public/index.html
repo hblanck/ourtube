@@ -79,6 +79,16 @@
           <option value="size">Size</option>
         </select>
       </div>
+
+      <div class="filter-section">
+        <div class="filter-toggle-row">
+          <label class="filter-label filter-label-inline" for="featured-section-toggle">Recently Added</label>
+          <label class="switch-toggle" for="featured-section-toggle" aria-label="Toggle Recently Added section">
+            <input type="checkbox" id="featured-section-toggle" class="switch-toggle-input" checked />
+            <span class="switch-toggle-track" aria-hidden="true"></span>
+          </label>
+        </div>
+      </div>
       </div>
     </aside>
 
@@ -89,10 +99,6 @@
       <section class="all-media-section">
         <h2 class="section-title" id="grid-title">All Media</h2>
         <div class="video-grid" id="media-grid"></div>
-        <div id="load-more-container" class="load-more-container">
-          <button id="load-more-btn" class="load-more-btn" style="display:none">Load More</button>
-          <p id="end-message" style="display:none;color:#888;text-align:center">No more items</p>
-        </div>
       </section>
 
       <section class="featured-section" id="featured-section">
