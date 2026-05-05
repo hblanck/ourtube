@@ -5,8 +5,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { getDb } = require('../db');
-const { scanLocation, scanAllLocations, getScanStatus } = require('../scanner');
-const { getActiveSessions } = require('../sessions');
+const { scanLocation, scanAllLocations, getScanStatus, killScan } = require('../scanner');
+const { getActiveSessions, killSession, isClientBlocked } = require('../sessions');
 const { getRandomVideoTimemark, getThumbnailPath, generateVideoThumbnail, generatePhotoThumbnail } = require('../thumbnails');
 const { normalizeVisibility } = require('../visibility');
 const { parseVirtualMediaId, getStitchGroupPath } = require('../virtual-media');
@@ -531,9 +531,55 @@ router.get('/scan/status', (req, res) => {
   res.json(getScanStatus());
 });
 
+// POST /api/admin/scan/kill
+router.post('/scan/kill', (req, res) => {
+  const killed = killScan();
+  res.json({ success: true, killed, status: getScanStatus() });
+});
+
 // GET /api/admin/active-sessions
 router.get('/active-sessions', (req, res) => {
   res.json(getActiveSessions());
+});
+
+// POST /api/admin/sessions/:id/kill
+router.post('/sessions/:id/kill', (req, res) => {
+  const db = getDb();
+  const sessionId = String(req.params.id || '');
+  const reason = String(req.body?.reason || 'Killed by admin');
+  const jailSeconds = Math.max(0, parseInt(req.body?.jail_seconds, 10) || 0);
+
+  const killed = killSession(sessionId, { reason, jailSeconds });
+  if (!killed) return res.status(404).json({ error: 'Session not found' });
+
+  logAdminAudit(db, req, 'session.kill', { sessionId, reason, jailSeconds });
+  res.json({ success: true, sessionId, jailSeconds });
+});
+
+// GET /api/admin/blocked-clients
+router.get('/blocked-clients', (req, res) => {
+  const db = getDb();
+  const rows = db.prepare(
+    `SELECT id, client_ip, blocked_at, unblock_at, reason, killed_session_key
+     FROM blocked_clients
+     WHERE unblock_at IS NULL OR datetime(unblock_at) > datetime('now')
+     ORDER BY blocked_at DESC`
+  ).all();
+  res.json(rows);
+});
+
+// DELETE /api/admin/blocked-clients/:id
+router.delete('/blocked-clients/:id', (req, res) => {
+  const db = getDb();
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id' });
+
+  const row = db.prepare('SELECT id, client_ip FROM blocked_clients WHERE id = ?').get(id);
+  if (!row) return res.status(404).json({ error: 'Not found' });
+
+  db.prepare('DELETE FROM blocked_clients WHERE id = ?').run(id);
+  logAdminAudit(db, req, 'session.unblock', { blockedClientId: id, ip: row.client_ip });
+  res.json({ success: true });
 });
 
 // PUT /api/admin/media/:id
@@ -948,6 +994,103 @@ router.put('/settings', (req, res) => {
   const settings = {};
   rows.forEach(r => { settings[r.key] = r.value; });
   res.json(settings);
+});
+
+// ── Client Session Log ────────────────────────────────────────────────────────
+
+function buildSessionLogWhere(query) {
+  const conditions = [];
+  const params = [];
+  const { ip, media_id, date_from, date_to } = query;
+  if (ip) { conditions.push('sl.client_ip LIKE ?'); params.push(`%${ip}%`); }
+  if (media_id) { conditions.push('sl.media_id = ?'); params.push(media_id); }
+  if (date_from) { conditions.push('sl.created_at >= ?'); params.push(date_from); }
+  if (date_to) {
+    const end = date_to.length === 10 ? date_to + 'T23:59:59.999Z' : date_to;
+    conditions.push('sl.created_at <= ?'); params.push(end);
+  }
+  return { where: conditions.length ? 'WHERE ' + conditions.join(' AND ') : '', params };
+}
+
+// GET /api/admin/session-log
+router.get('/session-log', (req, res) => {
+  const db = getDb();
+  const { page = 1, limit = 25 } = req.query;
+  const safePage = Math.max(1, parseInt(page, 10) || 1);
+  const pageLimit = Math.min(100, Math.max(1, parseInt(limit, 10) || 25));
+  const offset = (safePage - 1) * pageLimit;
+  const { where, params } = buildSessionLogWhere(req.query);
+
+  const total = db.prepare(`SELECT COUNT(*) AS cnt FROM client_session_log sl ${where}`).get(...params).cnt;
+  const items = db.prepare(
+    `SELECT sl.id, sl.session_key, sl.client_ip, sl.user_agent, sl.media_id, sl.media_title,
+            sl.stream_type, sl.started_at, sl.last_seen_at, sl.ended_at, sl.duration_seconds,
+            sl.bytes_sent, sl.request_count, sl.kill_reason, sl.created_at
+       FROM client_session_log sl
+       ${where}
+      ORDER BY sl.created_at DESC, sl.id DESC
+      LIMIT ? OFFSET ?`
+  ).all(...params, pageLimit, offset);
+
+  res.json({ total, page: safePage, limit: pageLimit, items });
+});
+
+// GET /api/admin/session-log/export — must be registered before /:id
+router.get('/session-log/export', (req, res) => {
+  const db = getDb();
+  const { where, params } = buildSessionLogWhere(req.query);
+  const rows = db.prepare(
+    `SELECT sl.id, sl.client_ip, sl.user_agent, sl.media_id, sl.media_title, sl.stream_type,
+            sl.started_at, sl.ended_at, sl.duration_seconds, sl.bytes_sent, sl.request_count,
+            sl.kill_reason, sl.created_at
+       FROM client_session_log sl
+       ${where}
+      ORDER BY sl.created_at DESC, sl.id DESC`
+  ).all(...params);
+
+  const escapeCsv = v => {
+    const s = String(v ?? '');
+    return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const header = ['id','created_at','client_ip','user_agent','media_title','stream_type','started_at','ended_at','duration_seconds','bytes_sent','request_count','kill_reason'].map(escapeCsv).join(',');
+  const lines = rows.map(r => [r.id,r.created_at,r.client_ip,r.user_agent,r.media_title,r.stream_type,r.started_at,r.ended_at,r.duration_seconds,r.bytes_sent,r.request_count,r.kill_reason].map(escapeCsv).join(','));
+  const csv = [header, ...lines].join('\r\n');
+  const filename = `session-log-${new Date().toISOString().slice(0, 10)}.csv`;
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.send(csv);
+});
+
+// GET /api/admin/session-log/:id
+router.get('/session-log/:id', (req, res) => {
+  const db = getDb();
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id' });
+  const row = db.prepare('SELECT * FROM client_session_log WHERE id = ?').get(id);
+  if (!row) return res.status(404).json({ error: 'Not found' });
+  res.json(row);
+});
+
+// DELETE /api/admin/session-log — purge records older than cutoff_days (default: all)
+router.delete('/session-log', (req, res) => {
+  const db = getDb();
+  const cutoffDays = parseInt(req.query.older_than_days, 10);
+  let result;
+  if (Number.isInteger(cutoffDays) && cutoffDays > 0) {
+    result = db.prepare(
+      `DELETE FROM client_session_log WHERE created_at < datetime('now', ? || ' days')`
+    ).run(`-${cutoffDays}`);
+  } else {
+    result = db.prepare('DELETE FROM client_session_log').run();
+  }
+  logAdminAudit(db, req, 'session_log.purge', { deleted: result.changes, cutoffDays: cutoffDays || 'all' });
+  res.json({ success: true, deleted: result.changes });
+});
+
+// GET /api/admin/telemetry - OpenTelemetry stats
+router.get('/telemetry', (req, res) => {
+  const { getStats } = require('../telemetry');
+  res.json(getStats());
 });
 
 // POST /api/admin/media/:id/reindex

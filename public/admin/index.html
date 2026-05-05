@@ -28,6 +28,7 @@
       <a class="admin-nav-link" data-tab="infrastructure">🖥 Infrastructure</a>
       <a class="admin-nav-link" data-tab="locations">📁 Source Locations</a>
       <a class="admin-nav-link" data-tab="library">🗂 Media Library</a>
+      <a class="admin-nav-link" data-tab="session-log">📋 Session Log</a>
       <a class="admin-nav-link" data-tab="settings">⚙️ Settings</a>
     </nav>
 
@@ -48,7 +49,8 @@
 
         <div class="admin-toolbar-row">
           <span id="scan-status-badge" class="scan-status idle"><span class="scan-dot"></span> Idle</span>
-          <button class="btn btn-primary" onclick="triggerFullScan()">▶ Scan All Locations</button>
+          <button class="btn btn-primary" id="scan-all-btn" onclick="triggerFullScan()">▶ Scan All Locations</button>
+          <button class="btn btn-danger btn-small" id="kill-scan-btn" onclick="killScan()" style="display:none">⏹ Kill Scan</button>
           <span id="scan-info" class="admin-meta-text"></span>
         </div>
 
@@ -71,9 +73,31 @@
                 <th>Type</th>
                 <th>Started</th>
                 <th>Data Sent</th>
+                <th>Actions</th>
               </tr></thead>
               <tbody id="sessions-tbody">
-                <tr><td colspan="6" class="table-empty-cell">No active sessions</td></tr>
+                <tr><td colspan="7" class="table-empty-cell">No active sessions</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="admin-block-mb-8">
+          <div class="admin-toolbar-row-tight">
+            <div class="admin-small-caps-label admin-no-margin">Blocked Clients</div>
+            <button type="button" class="btn btn-secondary btn-small" onclick="loadBlockedClients()">Refresh</button>
+          </div>
+          <div id="blocked-clients-wrap">
+            <table class="data-table" id="blocked-clients-table">
+              <thead><tr>
+                <th>Client IP</th>
+                <th>Blocked At</th>
+                <th>Unblocks At</th>
+                <th>Reason</th>
+                <th>Actions</th>
+              </tr></thead>
+              <tbody id="blocked-clients-tbody">
+                <tr><td colspan="5" class="table-empty-cell">No blocked clients</td></tr>
               </tbody>
             </table>
           </div>
@@ -104,6 +128,13 @@
           </div>
         </div>
         <div id="system-info-grid" class="system-info-grid">
+          <div class="system-info-card">
+            <div class="system-info-card-title">Loading…</div>
+          </div>
+        </div>
+
+        <h3 class="admin-section-subtitle" style="margin-top:24px">🔭 OpenTelemetry</h3>
+        <div id="telemetry-info">
           <div class="system-info-card">
             <div class="system-info-card-title">Loading…</div>
           </div>
@@ -181,6 +212,51 @@
         <div id="skipped-pagination" class="pagination-row"></div>
       </section>
 
+      <!-- Session Log -->
+      <section class="admin-section" id="tab-session-log">
+        <h2>Client Session Log</h2>
+
+        <div class="admin-toolbar-row admin-actions-row-mb-10">
+          <div>
+            <label class="audit-filter-label">Client IP</label>
+            <input type="text" id="sl-filter-ip" class="form-input audit-filter-action" placeholder="IP address" />
+          </div>
+          <div>
+            <label class="audit-filter-label">From</label>
+            <input type="date" id="sl-filter-from" class="form-input audit-filter-date">
+          </div>
+          <div>
+            <label class="audit-filter-label">To</label>
+            <input type="date" id="sl-filter-to" class="form-input audit-filter-date">
+          </div>
+          <div class="audit-filter-actions">
+            <button class="btn btn-primary btn-small" onclick="applySessionLogFilters()">Apply</button>
+            <button class="btn btn-secondary btn-small" onclick="clearSessionLogFilters()">Clear</button>
+            <button class="btn btn-secondary btn-small" onclick="exportSessionLogCsv()" title="Download CSV">⬇ CSV</button>
+            <button class="btn btn-danger btn-small" onclick="purgeSessionLog()" title="Purge old log records">🗑 Purge</button>
+          </div>
+        </div>
+        <table class="data-table" id="session-log-table">
+          <thead>
+            <tr>
+              <th>▸</th>
+              <th>Ended At</th>
+              <th>Client IP</th>
+              <th>User Agent</th>
+              <th>Media</th>
+              <th>Type</th>
+              <th>Duration</th>
+              <th>Data Sent</th>
+              <th>Kill Reason</th>
+            </tr>
+          </thead>
+          <tbody id="session-log-tbody">
+            <tr><td colspan="9" class="table-empty-cell">Loading…</td></tr>
+          </tbody>
+        </table>
+        <div id="session-log-pagination" class="pagination-row"></div>
+      </section>
+
       <!-- Settings -->
       <section class="admin-section" id="tab-settings">
         <h2>Settings</h2>
@@ -213,6 +289,10 @@
               <option value="true">Enabled</option>
               <option value="false">Hidden</option>
             </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Session Log Retention (days)</label>
+            <input type="number" name="session_log_retention_days" class="form-input" min="1" max="365" placeholder="30" />
           </div>
           <button type="submit" class="btn btn-primary">Save Settings</button>
         </form>
@@ -462,8 +542,44 @@
       </form>
     </div>
   </div>
+  <!-- Kill Session Modal -->
+  <div class="modal-overlay" id="kill-session-modal">
+    <div class="modal modal-narrow">
+      <div class="modal-header">
+        <div class="modal-title">Kill Client Session</div>
+        <button class="modal-close" onclick="closeModal('kill-session-modal')">✕</button>
+      </div>
+      <form id="kill-session-form">
+        <input type="hidden" name="session_id" />
+        <div class="form-group">
+          <label class="form-label">Client</label>
+          <div id="kill-session-info" class="source-visibility-name" style="font-size:13px"></div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Reason (optional)</label>
+          <input type="text" name="reason" class="form-input" placeholder="Reason for kill" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Jail Time</label>
+          <select name="jail_seconds" class="form-select">
+            <option value="0">None (no jail)</option>
+            <option value="300">5 minutes</option>
+            <option value="900">15 minutes</option>
+            <option value="1800">30 minutes</option>
+            <option value="3600">1 hour</option>
+            <option value="86400">1 day</option>
+            <option value="604800">1 week</option>
+          </select>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('kill-session-modal')">Cancel</button>
+          <button type="submit" class="btn btn-danger">Kill Session</button>
+        </div>
+      </form>
+    </div>
+  </div>
 
-  <script src="/js/admin-mode.js"></script>
+
   <script>
   'use strict';
   // ── Utilities ────────────────────────────────────────────
@@ -599,12 +715,13 @@
     document.querySelectorAll('.admin-section').forEach(s => s.classList.toggle('active', s.id === 'tab-' + tab));
 
     if (tab === 'dashboard') loadDashboard();
-    if (tab === 'infrastructure') loadSystemInfo();
+    if (tab === 'infrastructure') { loadSystemInfo(); loadTelemetryInfo(); }
     if (tab === 'locations') loadLocations();
     if (tab === 'library') {
       libPage = 1;
       loadLibrarySourceLocationFilter().then(() => loadLibrary());
     }
+    if (tab === 'session-log') { slPage = 1; loadSessionLog(); }
     if (tab === 'settings') loadSettings();
   }
 
@@ -636,6 +753,7 @@
 
     pollScanStatus();
     pollActiveSessions();
+    loadBlockedClients();
     loadSystemInfo();
   }
 
@@ -753,6 +871,8 @@
       const badge = document.getElementById('scan-status-badge');
       const info = document.getElementById('scan-info');
       const output = document.getElementById('scan-output');
+      const killBtn = document.getElementById('kill-scan-btn');
+      const scanAllBtn = document.getElementById('scan-all-btn');
       const lines = Array.isArray(s.recentOutput) ? s.recentOutput : [];
       output.textContent = lines.length ? lines.join('\n') : 'No scan output yet.';
       if (s.inProgress) output.scrollTop = output.scrollHeight;
@@ -760,6 +880,8 @@
         badge.className = 'scan-status running';
         badge.innerHTML = '<span class="scan-dot"></span> Scanning…';
         info.textContent = `Found: ${s.filesFound} · Indexed: ${s.filesIndexed} · Skipped: ${s.filesSkipped || 0} · Errors: ${s.errors}`;
+        if (killBtn) killBtn.style.display = s.killRequested ? 'none' : '';
+        if (scanAllBtn) scanAllBtn.disabled = true;
         scanPollTimer = setTimeout(pollScanStatus, 2000);
         scanWasInProgress = true;
       } else {
@@ -768,6 +890,8 @@
         info.textContent = s.lastRun
           ? `Last run: ${fmtDate(s.lastRun)} · Found: ${s.filesFound} · Indexed: ${s.filesIndexed} · Skipped: ${s.filesSkipped || 0} · Errors: ${s.errors}`
           : '';
+        if (killBtn) killBtn.style.display = 'none';
+        if (scanAllBtn) scanAllBtn.disabled = false;
         // Refresh stats cards when scan just finished
         if (scanWasInProgress) {
           scanWasInProgress = false;
@@ -790,6 +914,14 @@
     pollScanStatus();
   }
 
+  async function killScan() {
+    const killBtn = document.getElementById('kill-scan-btn');
+    if (killBtn) killBtn.disabled = true;
+    await adminFetch('/api/admin/scan/kill', { method: 'POST' });
+    if (killBtn) { killBtn.disabled = false; killBtn.style.display = 'none'; }
+    pollScanStatus();
+  }
+
   // ── Active Sessions ──────────────────────────────────────
   let sessionsPollTimer = null;
   async function pollActiveSessions() {
@@ -801,7 +933,7 @@
       const countEl = document.getElementById('sessions-count');
       countEl.textContent = sessions.length ? `(${sessions.length} active)` : '';
       if (!sessions.length) {
-        tbody.innerHTML = '<tr><td colspan="6" class="table-empty-cell">No active sessions</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" class="table-empty-cell">No active sessions</td></tr>';
       } else {
         tbody.innerHTML = sessions.map(s => {
           const elapsed = Math.floor((Date.now() - s.startedAt) / 1000);
@@ -818,11 +950,69 @@
             <td>${typeBadge}</td>
             <td class="cell-xs">${elapsedStr} ago</td>
             <td class="cell-xs">${fmtSize(s.bytesSent)}</td>
+            <td class="cell-xs"><button class="btn btn-small btn-danger-text" onclick="openKillSession('${escHtml(s.id)}','${escHtml(s.ip)}','${escHtml(s.title)}')">Kill</button></td>
           </tr>`;
         }).join('');
       }
     } catch { /* ignore */ }
     sessionsPollTimer = setTimeout(pollActiveSessions, 5000);
+  }
+
+  // ── Kill Session / Blocked Clients ──────────────────────
+  function openKillSession(sessionId, ip, title) {
+    const form = document.getElementById('kill-session-form');
+    form.querySelector('[name=session_id]').value = sessionId;
+    form.querySelector('[name=reason]').value = '';
+    form.querySelector('[name=jail_seconds]').value = '0';
+    document.getElementById('kill-session-info').textContent = `${ip} — ${title}`;
+    openModal('kill-session-modal');
+  }
+
+  document.getElementById('kill-session-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const form = e.target;
+    const sessionId = form.querySelector('[name=session_id]').value;
+    const reason = form.querySelector('[name=reason]').value.trim() || 'Killed by admin';
+    const jailSeconds = parseInt(form.querySelector('[name=jail_seconds]').value, 10) || 0;
+
+    const res = await adminFetch(`/api/admin/sessions/${encodeURIComponent(sessionId)}/kill`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason, jail_seconds: jailSeconds })
+    });
+    closeModal('kill-session-modal');
+    if (!res.ok) { alert('Kill failed'); return; }
+    pollActiveSessions();
+    if (jailSeconds > 0) loadBlockedClients();
+  });
+
+  async function loadBlockedClients() {
+    const tbody = document.getElementById('blocked-clients-tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="5" class="table-empty-cell">Loading…</td></tr>';
+    try {
+      const res = await adminFetch('/api/admin/blocked-clients');
+      if (!res.ok) { tbody.innerHTML = '<tr><td colspan="5" class="table-error-cell">Failed to load</td></tr>'; return; }
+      const rows = await res.json();
+      if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="table-empty-cell">No blocked clients</td></tr>';
+        return;
+      }
+      tbody.innerHTML = rows.map(r => `<tr>
+        <td><code class="code-xs">${escHtml(r.client_ip)}</code></td>
+        <td class="cell-xs">${fmtDate(r.blocked_at)}</td>
+        <td class="cell-xs">${r.unblock_at ? fmtDate(r.unblock_at) : 'Permanent'}</td>
+        <td class="cell-xs">${escHtml(r.reason || '—')}</td>
+        <td class="cell-xs"><button class="btn btn-small" onclick="unblockClient(${r.id})">Unblock</button></td>
+      </tr>`).join('');
+    } catch { tbody.innerHTML = '<tr><td colspan="5" class="table-error-cell">Error loading blocked clients</td></tr>'; }
+  }
+
+  async function unblockClient(id) {
+    if (!confirm('Unblock this client?')) return;
+    const res = await adminFetch(`/api/admin/blocked-clients/${id}`, { method: 'DELETE' });
+    if (!res.ok) { alert('Unblock failed'); return; }
+    loadBlockedClients();
   }
 
   // ── Locations ────────────────────────────────────────────
@@ -1735,6 +1925,177 @@
   function auditLogGo(nextPage) {
     auditLogPage = Math.max(1, nextPage);
     loadAuditLog();
+  }
+
+  // ── Session Log ──────────────────────────────────────────
+  let slPage = 1;
+  const slLimit = 25;
+  let slFilters = { ip: '', date_from: '', date_to: '' };
+  const expandedSlRows = new Set();
+
+  function buildSlParams() {
+    const p = new URLSearchParams({ page: slPage, limit: slLimit });
+    if (slFilters.ip) p.set('ip', slFilters.ip);
+    if (slFilters.date_from) p.set('date_from', slFilters.date_from);
+    if (slFilters.date_to) p.set('date_to', slFilters.date_to);
+    return p.toString();
+  }
+
+  function applySessionLogFilters() {
+    slFilters.ip = document.getElementById('sl-filter-ip')?.value.trim() || '';
+    slFilters.date_from = document.getElementById('sl-filter-from')?.value || '';
+    slFilters.date_to = document.getElementById('sl-filter-to')?.value || '';
+    slPage = 1;
+    loadSessionLog();
+  }
+
+  function clearSessionLogFilters() {
+    slFilters = { ip: '', date_from: '', date_to: '' };
+    const ip = document.getElementById('sl-filter-ip');
+    const from = document.getElementById('sl-filter-from');
+    const to = document.getElementById('sl-filter-to');
+    if (ip) ip.value = '';
+    if (from) from.value = '';
+    if (to) to.value = '';
+    slPage = 1;
+    loadSessionLog();
+  }
+
+  function exportSessionLogCsv() {
+    const p = new URLSearchParams();
+    if (slFilters.ip) p.set('ip', slFilters.ip);
+    if (slFilters.date_from) p.set('date_from', slFilters.date_from);
+    if (slFilters.date_to) p.set('date_to', slFilters.date_to);
+    const a = document.createElement('a');
+    a.href = '/api/admin/session-log/export?' + p.toString();
+    a.download = '';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+
+  async function purgeSessionLog() {
+    const days = prompt('Purge records older than N days (leave blank to purge ALL):');
+    if (days === null) return;
+    const url = days.trim()
+      ? `/api/admin/session-log?older_than_days=${encodeURIComponent(days.trim())}`
+      : '/api/admin/session-log';
+    const res = await adminFetch(url, { method: 'DELETE' });
+    const data = await res.json();
+    alert(`Purged ${data.deleted} session log record(s).`);
+    loadSessionLog();
+  }
+
+  function renderSlDetail(row) {
+    const dur = row.duration_seconds != null ? fmtDur(row.duration_seconds) : '—';
+    return `
+      <div class="admin-detail-panel">
+        ${renderSystemInfoRows([
+          ['Session Key', row.session_key || '—'],
+          ['Client IP', row.client_ip || '—'],
+          ['User Agent', row.user_agent || '—'],
+          ['Media ID', row.media_id || '—'],
+          ['Media Title', row.media_title || '—'],
+          ['Stream Type', row.stream_type || '—'],
+          ['Started At', fmtDate(row.started_at)],
+          ['Last Seen', fmtDate(row.last_seen_at)],
+          ['Ended At', fmtDate(row.ended_at)],
+          ['Duration', dur],
+          ['Bytes Sent', row.bytes_sent != null ? Number(row.bytes_sent).toLocaleString() + ' bytes (' + fmtSize(row.bytes_sent) + ')' : '—'],
+          ['Request Count', row.request_count != null ? String(row.request_count) : '—'],
+          ['Kill Reason', row.kill_reason || '—'],
+        ])}
+      </div>`;
+  }
+
+  async function loadSessionLog() {
+    const tbody = document.getElementById('session-log-tbody');
+    const pag = document.getElementById('session-log-pagination');
+    if (!tbody || !pag) return;
+    tbody.innerHTML = `<tr><td colspan="9" class="table-empty-cell">Loading…</td></tr>`;
+
+    const res = await adminFetch(`/api/admin/session-log?${buildSlParams()}`);
+    if (!res.ok) {
+      tbody.innerHTML = `<tr><td colspan="9" class="table-error-cell">Failed to load session log.</td></tr>`;
+      pag.innerHTML = '';
+      return;
+    }
+
+    const data = await res.json();
+    if (!data.items || !data.items.length) {
+      tbody.innerHTML = `<tr><td colspan="9" class="table-empty-cell">No session records found.</td></tr>`;
+      pag.innerHTML = '';
+      return;
+    }
+
+    const rows = data.items;
+    const rowMap = {};
+    rows.forEach(r => { rowMap[r.id] = r; });
+
+    function buildRows() {
+      const html = [];
+      for (const r of rows) {
+        const isExpanded = expandedSlRows.has(r.id);
+        const killBadge = r.kill_reason
+          ? `<span class="status-badge" style="background:#7f1d1d;color:#fff4e6;font-size:10px" title="${escHtml(r.kill_reason)}">Killed</span>`
+          : '—';
+        html.push(`<tr class="sl-row" data-sl-id="${r.id}" style="cursor:pointer" onclick="toggleSlDetail(${r.id})">
+          <td class="cell-xs" style="text-align:center">${isExpanded ? '▾' : '▸'}</td>
+          <td class="cell-xs cell-nowrap">${fmtDate(r.ended_at)}</td>
+          <td><code class="code-xs">${escHtml(r.client_ip || '—')}</code></td>
+          <td class="cell-xs cell-ellipsis-220" title="${escHtml(r.user_agent || '')}">${escHtml((r.user_agent || '—').slice(0, 60))}</td>
+          <td class="cell-xs">${escHtml(r.media_title || r.media_id || '—')}</td>
+          <td class="cell-xs">${escHtml(r.stream_type || '—')}</td>
+          <td class="cell-xs">${r.duration_seconds != null ? fmtDur(r.duration_seconds) : '—'}</td>
+          <td class="cell-xs">${fmtSize(r.bytes_sent)}</td>
+          <td class="cell-xs">${killBadge}</td>
+        </tr>`);
+        if (isExpanded) {
+          html.push(`<tr class="sl-detail-row" data-sl-detail-id="${r.id}">
+            <td colspan="9" style="padding:0">${renderSlDetail(r)}</td>
+          </tr>`);
+        }
+      }
+      return html.join('');
+    }
+
+    tbody.innerHTML = buildRows();
+
+    const totalPages = Math.max(1, Math.ceil((data.total || 0) / slLimit));
+    pag.innerHTML = `
+      <button class="btn btn-secondary btn-small" onclick="slGo(${slPage - 1})" ${slPage <= 1 ? 'disabled' : ''}>← Prev</button>
+      <span>Page ${slPage} of ${totalPages} (${data.total || 0} records)</span>
+      <button class="btn btn-secondary btn-small" onclick="slGo(${slPage + 1})" ${slPage >= totalPages ? 'disabled' : ''}>Next →</button>`;
+  }
+
+  function toggleSlDetail(id) {
+    if (expandedSlRows.has(id)) expandedSlRows.delete(id);
+    else expandedSlRows.add(id);
+    loadSessionLog();
+  }
+
+  function slGo(p) { slPage = Math.max(1, p); loadSessionLog(); }
+
+  // ── Telemetry ────────────────────────────────────────────
+  async function loadTelemetryInfo() {
+    const el = document.getElementById('telemetry-info');
+    if (!el) return;
+    try {
+      const res = await adminFetch('/api/admin/telemetry');
+      if (!res.ok) throw new Error(`${res.status}`);
+      const t = await res.json();
+      el.innerHTML = renderSystemInfoCard('OpenTelemetry', [
+        ['Status', t.enabled ? '✅ Enabled' : '⬜ Disabled (set OTEL_EXPORTER_OTLP_ENDPOINT to enable)'],
+        ['OTLP Endpoint', t.otlpEndpoint || '—'],
+        ['Service Name', t.serviceName || '—'],
+        ['HTTP Requests', fmtInteger(t.counters?.httpRequests)],
+        ['Stream Requests', fmtInteger(t.counters?.streamRequests)],
+        ['Bytes Streamed', fmtSize(t.counters?.bytesStreamed)],
+        ['Scans Run', fmtInteger(t.counters?.scansRun)],
+      ]);
+    } catch {
+      el.innerHTML = '<div class="system-info-card"><div class="system-info-empty">Failed to load telemetry info.</div></div>';
+    }
   }
 
   // ── Init ─────────────────────────────────────────────────

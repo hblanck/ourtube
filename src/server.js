@@ -1,5 +1,8 @@
 'use strict';
 
+const telemetry = require('./telemetry');
+telemetry.init();
+
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
@@ -187,6 +190,17 @@ app.get('/photo/:id', photoLimiter, async (req, res) => {
 // SPA fallback for admin
 app.get('/admin', adminLimiter, (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'admin', 'index.html'));
+});
+
+// Blocked-client status check (used by blocked.html countdown page)
+app.get('/api/blocked-status', (req, res) => {
+  const { isClientBlocked } = require('./sessions');
+  const ip = getClientIp(req);
+  const block = isClientBlocked(ip);
+  if (!block.blocked) {
+    return res.json({ blocked: false });
+  }
+  return res.json({ blocked: true, unblock_at: block.unblock_at, reason: block.reason });
 });
 
 // Initialize database and start server

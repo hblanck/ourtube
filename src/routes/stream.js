@@ -8,7 +8,7 @@ const sharp = require('sharp');
 const ffmpeg = require('fluent-ffmpeg');
 const { PassThrough } = require('stream');
 const { getDb } = require('../db');
-const { upsertSession, touchSession, addBytes } = require('../sessions');
+const { upsertSession, touchSession, addBytes, isClientBlocked } = require('../sessions');
 const { getStitchGroupPath, isVirtualMediaId, parseVirtualMediaId, sortSegmentRows } = require('../virtual-media');
 const { canAccessFromRow } = require('../visibility');
 
@@ -155,6 +155,17 @@ function isIntentionalKillError(err) {
 
 function getClientIp(req) {
   return req.ip || req.socket?.remoteAddress || 'unknown';
+}
+
+function checkClientBlocked(req, res) {
+  const ip = getClientIp(req);
+  const block = isClientBlocked(ip);
+  if (!block.blocked) return false;
+  const retryAfter = block.unblock_at ? Math.max(0, Math.ceil((new Date(block.unblock_at).getTime() - Date.now()) / 1000)) : null;
+  res.setHeader('X-Block-Reason', String(block.reason || 'Blocked by admin'));
+  if (retryAfter !== null) res.setHeader('Retry-After', String(retryAfter));
+  res.redirect(302, `/blocked.html?reason=${encodeURIComponent(block.reason || '')}&until=${encodeURIComponent(block.unblock_at || '')}`);
+  return true;
 }
 
 function createFfmpegDiagnostics(label) {
@@ -374,6 +385,7 @@ function getExistingVirtualHlsJob(mediaId) {
 
 // GET /stream/:id/hls/index.m3u8 - iOS/Safari-friendly compatibility stream for virtual videos
 router.get('/:id/hls/index.m3u8', async (req, res) => {
+  if (checkClientBlocked(req, res)) return;
   if (!isVirtualMediaId(req.params.id)) {
     return res.status(400).json({ error: 'HLS compatibility is available for virtual videos only' });
   }
@@ -394,6 +406,7 @@ router.get('/:id/hls/index.m3u8', async (req, res) => {
 
 // GET /stream/:id/hls/:segment - HLS segment files for virtual compatibility stream
 router.get('/:id/hls/:segment', async (req, res) => {
+  if (checkClientBlocked(req, res)) return;
   if (!isVirtualMediaId(req.params.id)) {
     return res.status(400).json({ error: 'HLS compatibility is available for virtual videos only' });
   }
@@ -420,6 +433,7 @@ router.get('/:id/hls/:segment', async (req, res) => {
 
 // GET /stream/:id/transcode - browser-compatible MP4 fallback stream
 router.get('/:id/transcode', (req, res) => {
+  if (checkClientBlocked(req, res)) return;
   const db = getDb();
   const startSeconds = parseStartSeconds(req.query.start);
   const virtualSegments = getVirtualSegmentRows(db, req.params.id, req);
@@ -641,6 +655,7 @@ router.get('/:id/transcode', (req, res) => {
 
 // GET /stream/:id  - HTTP range-supporting video stream (read-only)
 router.get('/:id', (req, res) => {
+  if (checkClientBlocked(req, res)) return;
   const db = getDb();
   if (isVirtualMediaId(req.params.id)) {
     return res.status(400).json({ error: 'Virtual videos require compatibility streaming' });

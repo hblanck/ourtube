@@ -25,11 +25,18 @@ let scanStatus = {
   filesSkipped: 0,
   errors: 0,
   currentFile: null,
-  recentOutput: []
+  recentOutput: [],
+  killRequested: false,
 };
 
 function getScanStatus() {
   return { ...scanStatus, recentOutput: [...scanStatus.recentOutput] };
+}
+
+function killScan() {
+  if (!scanStatus.inProgress) return false;
+  scanStatus.killRequested = true;
+  return true;
 }
 
 function appendScanOutput(line) {
@@ -312,6 +319,10 @@ async function scanLocation(location) {
   let errors = 0;
 
   for (const filePath of files) {
+    if (scanStatus.killRequested) {
+      scanInfo('[scanner] Scan killed by admin request.');
+      break;
+    }
     scanStatus.filesFound++;
     try {
       const mediaId = await indexFile(filePath, location.id);
@@ -350,7 +361,8 @@ async function scanAllLocations() {
     filesSkipped: 0,
     errors: 0,
     currentFile: null,
-    recentOutput: []
+    recentOutput: [],
+    killRequested: false,
   };
 
   const db = getDb();
@@ -359,14 +371,19 @@ async function scanAllLocations() {
   scanInfo(`[scanner] Starting scan of ${locations.length} location(s)`);
 
   for (const loc of locations) {
+    if (scanStatus.killRequested) {
+      scanInfo('[scanner] Scan killed by admin request.');
+      break;
+    }
     await scanLocation(loc);
   }
 
   scanStatus.inProgress = false;
+  scanStatus.killRequested = false;
   scanStatus.currentFile = null;
   scanInfo(
     `[scanner] Scan complete. Found: ${scanStatus.filesFound}, Indexed: ${scanStatus.filesIndexed}, Skipped: ${scanStatus.filesSkipped}, Errors: ${scanStatus.errors}`
   );
 }
 
-module.exports = { scanAllLocations, scanLocation, indexFile, getScanStatus };
+module.exports = { scanAllLocations, scanLocation, indexFile, getScanStatus, killScan };
