@@ -1006,7 +1006,8 @@ function buildSessionLogWhere(query) {
   if (media_id) { conditions.push('sl.media_id = ?'); params.push(String(media_id)); }
   if (date_from) { conditions.push('sl.created_at >= ?'); params.push(String(date_from)); }
   if (date_to) {
-    const end = String(date_to).length === 10 ? String(date_to) + 'T23:59:59.999Z' : String(date_to);
+    const dateTo = String(date_to);
+    const end = dateTo.length === 10 ? dateTo + 'T23:59:59.999Z' : dateTo;
     conditions.push('sl.created_at <= ?'); params.push(end);
   }
   return { where: conditions.length ? 'WHERE ' + conditions.join(' AND ') : '', params };

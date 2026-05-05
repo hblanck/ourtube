@@ -118,7 +118,7 @@ function initDb() {
 
     CREATE TABLE IF NOT EXISTS blocked_clients (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      client_ip TEXT NOT NULL,
+      client_ip TEXT NOT NULL UNIQUE,
       blocked_at TEXT NOT NULL DEFAULT (datetime('now')),
       unblock_at TEXT,
       reason TEXT,

@@ -216,7 +216,7 @@ function purgeOldSessionLog() {
   try {
     const db = getDb();
     const row = db.prepare("SELECT value FROM settings WHERE key = 'session_log_retention_days'").get();
-    const days = Math.max(1, parseInt(row?.value || '30', 10) || 30);
+    const days = Math.max(1, parseInt(row?.value || '30', 10));
     db.prepare(
       `DELETE FROM client_session_log WHERE created_at < datetime('now', ? || ' days')`
     ).run(`-${days}`);

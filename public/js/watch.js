@@ -820,6 +820,94 @@
     }
   }
 
+  // ── Blocked-client detection ──────────────────────────────────────────────────
+
+  let blockedPollTimer = null;
+  let blockedCountdownTimer = null;
+
+  function fmtCountdown(totalSeconds) {
+    const s = Math.max(0, Math.floor(totalSeconds));
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+    return `${m}:${String(sec).padStart(2, '0')}`;
+  }
+
+  function showBlockedOverlay(reason, unblockAt) {
+    const overlay = document.getElementById('blocked-overlay');
+    if (!overlay) return;
+
+    // Hide the normal watch content
+    const playerContainer = document.getElementById('player-container');
+    const photoContainer = document.getElementById('photo-container');
+    if (playerContainer) playerContainer.style.display = 'none';
+    if (photoContainer) photoContainer.style.display = 'none';
+
+    // Stop any active player
+    if (player) {
+      try { player.pause(); } catch (err) { console.warn('[watch] Could not pause player:', err.message); }
+    }
+
+    // Fill in overlay content
+    const reasonEl = document.getElementById('blocked-overlay-reason');
+    const countdownSection = document.getElementById('blocked-overlay-countdown-section');
+    const countdownEl = document.getElementById('blocked-overlay-countdown');
+    const permanentEl = document.getElementById('blocked-overlay-permanent');
+
+    if (reasonEl) reasonEl.textContent = reason || 'Your access has been restricted by the administrator.';
+
+    const unblockMs = unblockAt ? Date.parse(unblockAt) : null;
+
+    if (unblockMs && !Number.isNaN(unblockMs) && unblockMs > Date.now()) {
+      if (countdownSection) countdownSection.style.display = '';
+      if (permanentEl) permanentEl.style.display = 'none';
+
+      // Clear any old timer
+      if (blockedCountdownTimer) clearInterval(blockedCountdownTimer);
+
+      function tickCountdown() {
+        if (!countdownEl) return;
+        const remaining = (unblockMs - Date.now()) / 1000;
+        if (remaining <= 0) {
+          countdownEl.textContent = '0:00';
+          clearInterval(blockedCountdownTimer);
+          // Access restored — reload the page
+          setTimeout(() => { location.reload(); }, 1500);
+          return;
+        }
+        countdownEl.textContent = fmtCountdown(remaining);
+      }
+      tickCountdown();
+      blockedCountdownTimer = setInterval(tickCountdown, 1000);
+    } else {
+      if (countdownSection) countdownSection.style.display = 'none';
+      if (permanentEl) permanentEl.style.display = '';
+    }
+
+    overlay.style.display = '';
+  }
+
+  async function checkBlockedStatus() {
+    try {
+      const res = await fetch('/api/blocked-status');
+      if (!res.ok) return false;
+      const data = await res.json();
+      if (data.blocked) {
+        showBlockedOverlay(data.reason, data.unblock_at);
+        // Stop periodic poll - countdown timer handles the reload
+        if (blockedPollTimer) { clearInterval(blockedPollTimer); blockedPollTimer = null; }
+        return true;
+      }
+    } catch { /* ignore */ }
+    return false;
+  }
+
+  function startBlockedStatusPoll() {
+    if (blockedPollTimer) return;
+    blockedPollTimer = setInterval(checkBlockedStatus, 30_000);
+  }
+
   async function init() {
     clipWatermarkEnabled = readClipWatermarkPreference();
     clipWatermarkMode = readClipWatermarkModePreference();
@@ -839,6 +927,13 @@
         loadRelated(currentMedia);
       }
     });
+
+    // Check blocked status before attempting to load/play media
+    const isBlocked = await checkBlockedStatus();
+    if (isBlocked) return;
+
+    // Start periodic polling so a mid-session jail shows the overlay promptly
+    startBlockedStatusPoll();
 
     try {
       const res = await fetch(`/api/media/${mediaId}`);
