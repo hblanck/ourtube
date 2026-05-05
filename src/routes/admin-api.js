@@ -1002,11 +1002,11 @@ function buildSessionLogWhere(query) {
   const conditions = [];
   const params = [];
   const { ip, media_id, date_from, date_to } = query;
-  if (ip) { conditions.push('sl.client_ip LIKE ?'); params.push(`%${ip}%`); }
-  if (media_id) { conditions.push('sl.media_id = ?'); params.push(media_id); }
-  if (date_from) { conditions.push('sl.created_at >= ?'); params.push(date_from); }
+  if (ip) { conditions.push('sl.client_ip LIKE ?'); params.push(`%${String(ip)}%`); }
+  if (media_id) { conditions.push('sl.media_id = ?'); params.push(String(media_id)); }
+  if (date_from) { conditions.push('sl.created_at >= ?'); params.push(String(date_from)); }
   if (date_to) {
-    const end = date_to.length === 10 ? date_to + 'T23:59:59.999Z' : date_to;
+    const end = String(date_to).length === 10 ? String(date_to) + 'T23:59:59.999Z' : String(date_to);
     conditions.push('sl.created_at <= ?'); params.push(end);
   }
   return { where: conditions.length ? 'WHERE ' + conditions.join(' AND ') : '', params };

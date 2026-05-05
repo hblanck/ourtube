@@ -226,7 +226,8 @@ function purgeOldSessionLog() {
 }
 
 // Sweep expired blocks every 5 minutes
-setInterval(() => { purgeExpiredBlocks(); purgeOldSessionLog(); }, 5 * 60 * 1000).unref?.();
+const _sweepTimer = setInterval(() => { purgeExpiredBlocks(); purgeOldSessionLog(); }, 5 * 60 * 1000);
+if (_sweepTimer.unref) _sweepTimer.unref();
 
 module.exports = {
   upsertSession,

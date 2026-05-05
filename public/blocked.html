@@ -131,6 +131,7 @@
     }
 
     let redirected = false;
+    let pollTimer = null;
 
     function tick() {
       if (!unblockMs) return;
@@ -138,6 +139,7 @@
       if (remaining <= 0) {
         if (!redirected) {
           redirected = true;
+          clearInterval(pollTimer);
           countdownDisplay.textContent = '0:00';
           countdownLabel.textContent = 'Redirecting…';
           setTimeout(() => { location.href = '/'; }, 1500);
@@ -159,12 +161,13 @@
         if (!data.blocked && !redirected) {
           redirected = true;
           clearInterval(timer);
+          clearInterval(pollTimer);
           location.href = '/';
         }
       } catch { /* ignore */ }
     }
 
-    setInterval(pollBlockStatus, 30_000);
+    pollTimer = setInterval(pollBlockStatus, 30_000);
   </script>
 </body>
 </html>
