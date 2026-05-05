@@ -26,6 +26,19 @@
 
   <div class="watch-layout">
     <div class="watch-main">
+      <!-- Blocked overlay (shown when this client's IP is jailed) -->
+      <div id="blocked-overlay" style="display:none" aria-live="assertive">
+        <div class="blocked-overlay-icon">🚫</div>
+        <div class="blocked-overlay-title">Access Blocked</div>
+        <div class="blocked-overlay-reason" id="blocked-overlay-reason">Your access has been restricted by the administrator.</div>
+        <div id="blocked-overlay-countdown-section" style="display:none">
+          <div class="blocked-overlay-countdown" id="blocked-overlay-countdown">—</div>
+          <div class="blocked-overlay-countdown-label">Remaining until access is restored</div>
+        </div>
+        <div id="blocked-overlay-permanent" style="display:none" class="blocked-overlay-permanent">Contact the administrator to have your access restored.</div>
+        <a href="/" class="blocked-overlay-btn">🏠 Return to Home</a>
+      </div>
+
       <!-- Video Player -->
       <div id="player-container" class="player-container">
         <video id="video-player" class="video-js vjs-big-play-centered vjs-fluid" controls preload="auto"></video>

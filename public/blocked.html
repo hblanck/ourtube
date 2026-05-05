@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Access Blocked – OurTube</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="stylesheet" href="/css/main.css" />
+  <style>
+    .blocked-container {
+      max-width: 520px;
+      margin: 80px auto;
+      padding: 40px 32px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--card-shadow);
+      text-align: center;
+    }
+    .blocked-icon { font-size: 56px; margin-bottom: 16px; }
+    .blocked-title { font-size: 24px; font-weight: 700; margin-bottom: 8px; color: var(--text); }
+    .blocked-reason {
+      font-size: 14px;
+      color: var(--text-muted);
+      margin-bottom: 24px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px 16px;
+      word-break: break-word;
+    }
+    .blocked-countdown {
+      font-size: 48px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      color: var(--accent);
+      margin-bottom: 8px;
+      letter-spacing: -1px;
+    }
+    .blocked-countdown-label {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-bottom: 24px;
+    }
+    .blocked-permanent {
+      font-size: 14px;
+      color: var(--text-muted);
+      margin-bottom: 24px;
+    }
+    .blocked-home-btn {
+      display: inline-block;
+      padding: 10px 28px;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .blocked-home-btn:hover { background: var(--accent-hover); }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <a href="/" class="logo">📺 OurTube</a>
+    </div>
+  </header>
+
+  <div class="blocked-container">
+    <div class="blocked-icon">🚫</div>
+    <div class="blocked-title">Access Temporarily Blocked</div>
+    <div class="blocked-reason" id="block-reason">Your access has been restricted by the administrator.</div>
+
+    <div id="countdown-section">
+      <div class="blocked-countdown" id="countdown-display">—</div>
+      <div class="blocked-countdown-label" id="countdown-label">Remaining until access is restored</div>
+    </div>
+
+    <div id="permanent-section" style="display:none">
+      <div class="blocked-permanent">Contact the administrator to have your access restored.</div>
+    </div>
+
+    <a href="/" class="blocked-home-btn">🏠 Return to Home</a>
+  </div>
+
+  <script>
+    'use strict';
+
+    function getParam(name) {
+      try { return new URLSearchParams(location.search).get(name) || ''; } catch { return ''; }
+    }
+
+    function fmtCountdown(totalSeconds) {
+      const s = Math.max(0, Math.floor(totalSeconds));
+      const h = Math.floor(s / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      const sec = s % 60;
+      if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+      return `${m}:${String(sec).padStart(2, '0')}`;
+    }
+
+    const reasonParam = getParam('reason');
+    const untilParam  = getParam('until');
+
+    const reasonEl  = document.getElementById('block-reason');
+    const countdownSection  = document.getElementById('countdown-section');
+    const permanentSection  = document.getElementById('permanent-section');
+    const countdownDisplay  = document.getElementById('countdown-display');
+    const countdownLabel    = document.getElementById('countdown-label');
+
+    if (reasonParam) {
+      reasonEl.textContent = reasonParam;
+    }
+
+    let unblockMs = null;
+    if (untilParam) {
+      const parsed = Date.parse(untilParam);
+      if (!Number.isNaN(parsed)) unblockMs = parsed;
+    }
+
+    if (!unblockMs) {
+      countdownSection.style.display = 'none';
+      permanentSection.style.display = '';
+    } else {
+      permanentSection.style.display = 'none';
+      countdownSection.style.display = '';
+    }
+
+    let redirected = false;
+    let pollTimer = null;
+
+    function tick() {
+      if (!unblockMs) return;
+      const remaining = (unblockMs - Date.now()) / 1000;
+      if (remaining <= 0) {
+        if (!redirected) {
+          redirected = true;
+          clearInterval(pollTimer);
+          countdownDisplay.textContent = '0:00';
+          countdownLabel.textContent = 'Redirecting…';
+          setTimeout(() => { location.href = '/'; }, 1500);
+        }
+        return;
+      }
+      countdownDisplay.textContent = fmtCountdown(remaining);
+    }
+
+    tick();
+    const timer = setInterval(tick, 1000);
+
+    // Also poll the server in case the admin lifts the block early
+    async function pollBlockStatus() {
+      try {
+        const res = await fetch('/api/blocked-status');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!data.blocked && !redirected) {
+          redirected = true;
+          clearInterval(timer);
+          clearInterval(pollTimer);
+          location.href = '/';
+        }
+      } catch { /* ignore */ }
+    }
+
+    pollTimer = setInterval(pollBlockStatus, 30_000);
+  </script>
+</body>
+</html>

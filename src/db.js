@@ -116,7 +116,37 @@ function initDb() {
       skip_count INTEGER NOT NULL DEFAULT 1
     );
 
-    CREATE INDEX IF NOT EXISTS idx_media_type ON media(type);
+    CREATE TABLE IF NOT EXISTS blocked_clients (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      client_ip TEXT NOT NULL UNIQUE,
+      blocked_at TEXT NOT NULL DEFAULT (datetime('now')),
+      unblock_at TEXT,
+      reason TEXT,
+      killed_session_key TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS client_session_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_key TEXT,
+      client_ip TEXT,
+      user_agent TEXT,
+      media_id TEXT,
+      media_title TEXT,
+      stream_type TEXT,
+      started_at TEXT,
+      last_seen_at TEXT,
+      ended_at TEXT NOT NULL DEFAULT (datetime('now')),
+      duration_seconds REAL,
+      bytes_sent INTEGER DEFAULT 0,
+      request_count INTEGER DEFAULT 1,
+      kill_reason TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_blocked_clients_ip ON blocked_clients(client_ip);
+    CREATE INDEX IF NOT EXISTS idx_blocked_clients_unblock_at ON blocked_clients(unblock_at);
+    CREATE INDEX IF NOT EXISTS idx_client_session_log_created ON client_session_log(created_at);
+    CREATE INDEX IF NOT EXISTS idx_client_session_log_ip ON client_session_log(client_ip);
     CREATE INDEX IF NOT EXISTS idx_media_year ON media(year);
     CREATE INDEX IF NOT EXISTS idx_media_location ON media(location);
     CREATE INDEX IF NOT EXISTS idx_media_indexed_at ON media(indexed_at);
@@ -141,6 +171,7 @@ function initDb() {
   insertSetting.run('thumbnail_height', '300');
   insertSetting.run('scan_on_startup', 'false');
   insertSetting.run('photos_enabled', 'true');
+  insertSetting.run('session_log_retention_days', '30');
 
   return db;
 }

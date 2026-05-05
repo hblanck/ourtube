@@ -107,6 +107,41 @@ After unlocking, manage keys in **Admin → Settings → Admin Keys** (create, r
 | `DATA_DIR` | `/data` | Where to store the SQLite database and thumbnails |
 | `NAS_SHARE_PATH` | `/mnt/nas/videos` | Host path to your mounted NAS/media share |
 | `FACE_DETECTION_ENABLED` | `false` | Enable face detection (requires models in `$DATA_DIR/models/`) |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | _(unset)_ | Base URL of your OTLP/HTTP collector – setting this enables OpenTelemetry |
+| `OTEL_SERVICE_NAME` | `ourtube` | Service name reported to the collector |
+| `OTEL_SDK_DISABLED` | `false` | Set to `true` to explicitly disable the SDK even if an endpoint is set |
+| `OTEL_LOG_LEVEL` | _(unset)_ | Set to `debug` to enable verbose OpenTelemetry SDK logging |
+
+## OpenTelemetry (Observability)
+
+OurTube includes built-in [OpenTelemetry](https://opentelemetry.io/) support for traces and metrics. It is **disabled by default** and only activates when `OTEL_EXPORTER_OTLP_ENDPOINT` is set to a non-empty value.
+
+**To enable**, point it at any OTLP/HTTP-compatible collector (OpenTelemetry Collector, Grafana Alloy, Jaeger, etc.):
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 DATA_DIR=/data node src/server.js
+```
+
+Or in Docker Compose:
+
+```yaml
+environment:
+  - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+  - OTEL_SERVICE_NAME=ourtube
+```
+
+The SDK automatically appends `/v1/traces` and `/v1/metrics` to the base URL, so **do not include a path** in the endpoint value.
+
+**Custom metrics exported:**
+
+| Metric | Description |
+|---|---|
+| `ourtube.http.requests.total` | Total HTTP requests handled |
+| `ourtube.scans.total` | Total library scans completed |
+| `ourtube.stream.requests.total` | Total video/photo stream requests |
+| `ourtube.stream.bytes_sent` | Total bytes sent via streaming |
+
+Metrics are pushed to the collector every 60 seconds. Traces use Node.js auto-instrumentation (HTTP, Express, SQLite, etc.).
 
 ## Face Detection (Optional)
 
