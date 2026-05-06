@@ -29,7 +29,6 @@
       <a class="admin-nav-link" data-tab="locations">📁 Source Locations</a>
       <a class="admin-nav-link" data-tab="library">🗂 Media Library</a>
       <a class="admin-nav-link" data-tab="session-log">📋 Session Log</a>
-      <a class="admin-nav-link" data-tab="stitched">🎬 Stitched Videos</a>
       <a class="admin-nav-link" data-tab="settings">⚙️ Settings</a>
     </nav>
 
@@ -209,6 +208,22 @@
           </thead>
           <tbody id="locations-tbody"></tbody>
         </table>
+
+        <h3 class="admin-section-subtitle">🎬 Custom Stitched Videos</h3>
+        <p class="admin-help-text" style="margin:0 0 12px">Create custom videos by combining individual clips in any order. Drag to reorder, toggle clips on or off.</p>
+        <div class="admin-block-mb-16">
+          <button class="btn btn-primary" onclick="openStitchEditor(null)">+ New Stitched Video</button>
+        </div>
+        <table class="data-table" id="stitch-table">
+          <thead>
+            <tr>
+              <th>Name</th><th>Clips</th><th>Duration</th><th>Visibility</th><th>Created</th><th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="stitch-tbody">
+            <tr><td colspan="6" class="table-empty-cell">Loading…</td></tr>
+          </tbody>
+        </table>
       </section>
 
       <!-- Media Library -->
@@ -308,25 +323,6 @@
           </tbody>
         </table>
         <div id="session-log-pagination" class="pagination-row"></div>
-      </section>
-
-      <!-- Stitched Videos -->
-      <section class="admin-section" id="tab-stitched">
-        <div class="admin-toolbar-row admin-toolbar-row-between">
-          <h2 class="admin-no-margin">Stitched Videos</h2>
-          <button class="btn btn-primary" onclick="openStitchEditor(null)">+ New Stitched Video</button>
-        </div>
-        <p class="admin-help-text" style="margin:8px 0 16px">Create custom videos by combining individual clips in any order. Drag to reorder clips, toggle clips on or off.</p>
-        <table class="data-table" id="stitch-table">
-          <thead>
-            <tr>
-              <th>Name</th><th>Clips</th><th>Duration</th><th>Visibility</th><th>Created</th><th>Actions</th>
-            </tr>
-          </thead>
-          <tbody id="stitch-tbody">
-            <tr><td colspan="6" class="table-empty-cell">Loading…</td></tr>
-          </tbody>
-        </table>
       </section>
 
       <!-- Settings -->
@@ -862,13 +858,12 @@
 
     if (tab === 'dashboard') loadDashboard();
     if (tab === 'infrastructure') { loadSystemInfo(); loadTelemetryInfo(); }
-    if (tab === 'locations') loadLocations();
+    if (tab === 'locations') { loadLocations(); loadStitchedVideos(); }
     if (tab === 'library') {
       libPage = 1;
       loadLibrarySourceLocationFilter().then(() => loadLibrary());
     }
     if (tab === 'session-log') { slPage = 1; loadSessionLog(); }
-    if (tab === 'stitched') loadStitchedVideos();
     if (tab === 'settings') loadSettings();
   }
 
@@ -883,7 +878,8 @@
   const editId = urlParams.get('edit');
   const tabParam = urlParams.get('tab');
   if (tabParam) {
-    openAdminTab(tabParam);
+    // 'stitched' was a former standalone tab; redirect to locations which now hosts it
+    openAdminTab(tabParam === 'stitched' ? 'locations' : tabParam);
   } else if (editId) {
     openAdminTab('library');
     openMediaEdit(editId);

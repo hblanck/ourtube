@@ -750,7 +750,7 @@
     const editLink = document.getElementById('watch-admin-edit');
     if (editLink) {
       if (media.is_user_stitched) {
-        editLink.href = `/admin/?tab=stitched`;
+        editLink.href = `/admin/?tab=locations`;
         editLink.textContent = 'Edit Stitched Video';
       } else {
         editLink.href = `/admin/?tab=library&edit=${encodeURIComponent(media.id)}`;
