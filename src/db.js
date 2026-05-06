@@ -143,6 +143,24 @@ function initDb() {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS stitched_videos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      description TEXT,
+      visibility TEXT NOT NULL DEFAULT 'all',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS stitched_video_clips (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      stitched_video_id INTEGER NOT NULL REFERENCES stitched_videos(id) ON DELETE CASCADE,
+      media_id TEXT NOT NULL,
+      position INTEGER NOT NULL DEFAULT 0,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE INDEX IF NOT EXISTS idx_blocked_clients_ip ON blocked_clients(client_ip);
     CREATE INDEX IF NOT EXISTS idx_blocked_clients_unblock_at ON blocked_clients(unblock_at);
     CREATE INDEX IF NOT EXISTS idx_client_session_log_created ON client_session_log(created_at);
@@ -156,6 +174,7 @@ function initDb() {
     CREATE INDEX IF NOT EXISTS idx_location_entries_location_id ON source_location_entries(source_location_id);
     CREATE INDEX IF NOT EXISTS idx_admin_keys_revoked_at ON admin_keys(revoked_at);
     CREATE INDEX IF NOT EXISTS idx_admin_audit_created_at ON admin_audit_log(created_at);
+    CREATE INDEX IF NOT EXISTS idx_stitched_video_clips_video_id ON stitched_video_clips(stitched_video_id);
   `);
 
   ensureColumn('source_locations', 'stitch_directories', 'INTEGER NOT NULL DEFAULT 0');

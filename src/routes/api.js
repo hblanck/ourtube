@@ -4,8 +4,12 @@ const express = require('express');
 const { getDb } = require('../db');
 const {
   aggregateMediaRows,
+  buildUserStitchedVideoId,
+  buildUserStitchedVideoItem,
   buildVirtualMediaItem,
   getStitchGroupPath,
+  isUserStitchedVideoId,
+  parseUserStitchedVideoId,
   parseTags,
   parseVirtualMediaId,
   sortMediaItems,
@@ -207,7 +211,37 @@ router.get('/media/:id', (req, res) => {
   const db = getDb();
   const photosEnabled = isPhotosEnabled(db);
   const virtualRef = parseVirtualMediaId(req.params.id);
+  const userStitchedId = parseUserStitchedVideoId(req.params.id);
   const includeHidden = req.query.include_hidden === '1' && isAdminAuthenticated(req);
+
+  // Handle user-defined stitched videos
+  if (userStitchedId !== null) {
+    const video = db.prepare('SELECT * FROM stitched_videos WHERE id = ?').get(userStitchedId);
+    if (!video) return res.status(404).json({ error: 'Not found' });
+
+    const visibilityRank = { none: 2, admin: 1, all: 0 };
+    if (!includeHidden) {
+      const rank = visibilityRank[video.visibility] ?? 0;
+      const isAdmin = isAdminAuthenticated(req);
+      if (rank >= 2) return res.status(404).json({ error: 'Not found' });
+      if (rank >= 1 && !isAdmin) return res.status(404).json({ error: 'Not found' });
+    }
+
+    const clips = db.prepare(
+      `SELECT svc.id, svc.stitched_video_id, svc.media_id, svc.position, svc.enabled,
+              m.file_path AS media_file_path, m.file_name AS media_file_name,
+              m.friendly_name AS media_friendly_name, m.duration AS media_duration,
+              m.width AS media_width, m.height AS media_height, m.size AS media_size,
+              m.thumbnail_path AS media_thumbnail_path, m.type AS media_type
+         FROM stitched_video_clips svc
+         LEFT JOIN media m ON m.id = svc.media_id
+        WHERE svc.stitched_video_id = ?
+        ORDER BY svc.position ASC, svc.id ASC`
+    ).all(userStitchedId);
+
+    const item = buildUserStitchedVideoItem(video, clips, { includeSegments: true });
+    return res.json(item);
+  }
 
   if (virtualRef) {
     const rows = db.prepare(

@@ -9,7 +9,7 @@ const { scanLocation, scanAllLocations, getScanStatus, killScan } = require('../
 const { getActiveSessions, killSession, isClientBlocked } = require('../sessions');
 const { getRandomVideoTimemark, getThumbnailPath, generateVideoThumbnail, generatePhotoThumbnail } = require('../thumbnails');
 const { normalizeVisibility } = require('../visibility');
-const { parseVirtualMediaId, getStitchGroupPath } = require('../virtual-media');
+const { parseVirtualMediaId, getStitchGroupPath, isUserStitchedVideoId, parseUserStitchedVideoId, buildUserStitchedVideoId, buildUserStitchedVideoItem } = require('../virtual-media');
 const packageJson = require('../../package.json');
 
 const router = express.Router();
@@ -1183,6 +1183,151 @@ router.get('/metrics/library-stats', (req, res) => {
   ).get();
   
   res.json(stats || {});
+});
+
+// ── User-defined Stitched Videos ──────────────────────────────────────────────
+
+function getStitchedVideoClips(db, stitchedVideoId) {
+  return db.prepare(
+    `SELECT svc.id, svc.stitched_video_id, svc.media_id, svc.position, svc.enabled,
+            m.file_path AS media_file_path, m.file_name AS media_file_name,
+            m.friendly_name AS media_friendly_name, m.duration AS media_duration,
+            m.width AS media_width, m.height AS media_height, m.size AS media_size,
+            m.thumbnail_path AS media_thumbnail_path, m.type AS media_type
+       FROM stitched_video_clips svc
+       LEFT JOIN media m ON m.id = svc.media_id
+      WHERE svc.stitched_video_id = ?
+      ORDER BY svc.position ASC, svc.id ASC`
+  ).all(stitchedVideoId);
+}
+
+// GET /api/admin/stitched-videos
+router.get('/stitched-videos', (req, res) => {
+  const db = getDb();
+  const rows = db.prepare(
+    'SELECT * FROM stitched_videos ORDER BY created_at DESC'
+  ).all();
+
+  const items = rows.map(video => {
+    const clips = getStitchedVideoClips(db, video.id);
+    return buildUserStitchedVideoItem(video, clips, { includeSegments: true, adminMode: true });
+  });
+
+  res.json(items);
+});
+
+// POST /api/admin/stitched-videos
+router.post('/stitched-videos', (req, res) => {
+  const db = getDb();
+  const { name, description = '', visibility = 'all', clips = [] } = req.body;
+
+  if (!name || !String(name).trim()) {
+    return res.status(400).json({ error: 'name is required' });
+  }
+
+  const create = db.transaction(() => {
+    const result = db.prepare(
+      `INSERT INTO stitched_videos (name, description, visibility) VALUES (?, ?, ?)`
+    ).run(String(name).trim(), String(description || '').trim(), normalizeVisibility(visibility));
+
+    const videoId = Number(result.lastInsertRowid);
+    const insertClip = db.prepare(
+      `INSERT INTO stitched_video_clips (stitched_video_id, media_id, position, enabled) VALUES (?, ?, ?, ?)`
+    );
+
+    let position = 0;
+    for (const clip of Array.isArray(clips) ? clips : []) {
+      const mediaId = String(clip.media_id || '').trim();
+      if (!mediaId) continue;
+      const enabled = clip.enabled === false || clip.enabled === 0 ? 0 : 1;
+      insertClip.run(videoId, mediaId, position++, enabled);
+    }
+
+    return videoId;
+  });
+
+  const videoId = create();
+  const video = db.prepare('SELECT * FROM stitched_videos WHERE id = ?').get(videoId);
+  const clips2 = getStitchedVideoClips(db, videoId);
+
+  logAdminAudit(db, req, 'stitched_video.create', { videoId, name });
+  res.status(201).json(buildUserStitchedVideoItem(video, clips2, { includeSegments: true, adminMode: true }));
+});
+
+// GET /api/admin/stitched-videos/:id
+router.get('/stitched-videos/:id', (req, res) => {
+  const db = getDb();
+  const videoId = parseInt(req.params.id, 10);
+  if (!Number.isInteger(videoId)) return res.status(400).json({ error: 'Invalid id' });
+
+  const video = db.prepare('SELECT * FROM stitched_videos WHERE id = ?').get(videoId);
+  if (!video) return res.status(404).json({ error: 'Not found' });
+
+  const clips = getStitchedVideoClips(db, videoId);
+  res.json(buildUserStitchedVideoItem(video, clips, { includeSegments: true, adminMode: true }));
+});
+
+// PUT /api/admin/stitched-videos/:id
+router.put('/stitched-videos/:id', (req, res) => {
+  const db = getDb();
+  const videoId = parseInt(req.params.id, 10);
+  if (!Number.isInteger(videoId)) return res.status(400).json({ error: 'Invalid id' });
+
+  const video = db.prepare('SELECT * FROM stitched_videos WHERE id = ?').get(videoId);
+  if (!video) return res.status(404).json({ error: 'Not found' });
+
+  const { name, description, visibility, clips } = req.body;
+
+  const update = db.transaction(() => {
+    db.prepare(
+      `UPDATE stitched_videos SET
+        name = COALESCE(?, name),
+        description = COALESCE(?, description),
+        visibility = COALESCE(?, visibility),
+        updated_at = datetime('now')
+      WHERE id = ?`
+    ).run(
+      name !== undefined ? String(name).trim() : null,
+      description !== undefined ? String(description || '').trim() : null,
+      visibility !== undefined ? normalizeVisibility(visibility) : null,
+      videoId
+    );
+
+    if (Array.isArray(clips)) {
+      db.prepare('DELETE FROM stitched_video_clips WHERE stitched_video_id = ?').run(videoId);
+      const insertClip = db.prepare(
+        `INSERT INTO stitched_video_clips (stitched_video_id, media_id, position, enabled) VALUES (?, ?, ?, ?)`
+      );
+      let position = 0;
+      for (const clip of clips) {
+        const mediaId = String(clip.media_id || '').trim();
+        if (!mediaId) continue;
+        const enabled = clip.enabled === false || clip.enabled === 0 ? 0 : 1;
+        insertClip.run(videoId, mediaId, position++, enabled);
+      }
+    }
+  });
+
+  update();
+  const updatedVideo = db.prepare('SELECT * FROM stitched_videos WHERE id = ?').get(videoId);
+  const updatedClips = getStitchedVideoClips(db, videoId);
+
+  logAdminAudit(db, req, 'stitched_video.update', { videoId });
+  res.json(buildUserStitchedVideoItem(updatedVideo, updatedClips, { includeSegments: true, adminMode: true }));
+});
+
+// DELETE /api/admin/stitched-videos/:id
+router.delete('/stitched-videos/:id', (req, res) => {
+  const db = getDb();
+  const videoId = parseInt(req.params.id, 10);
+  if (!Number.isInteger(videoId)) return res.status(400).json({ error: 'Invalid id' });
+
+  const video = db.prepare('SELECT id, name FROM stitched_videos WHERE id = ?').get(videoId);
+  if (!video) return res.status(404).json({ error: 'Not found' });
+
+  db.prepare('DELETE FROM stitched_videos WHERE id = ?').run(videoId);
+  logAdminAudit(db, req, 'stitched_video.delete', { videoId, name: video.name });
+  res.json({ success: true });
 });
 
 module.exports = router;

@@ -9,7 +9,7 @@ const ffmpeg = require('fluent-ffmpeg');
 const { PassThrough } = require('stream');
 const { getDb } = require('../db');
 const { upsertSession, touchSession, addBytes, isClientBlocked } = require('../sessions');
-const { getStitchGroupPath, isVirtualMediaId, parseVirtualMediaId, sortSegmentRows } = require('../virtual-media');
+const { getStitchGroupPath, isVirtualMediaId, isUserStitchedVideoId, parseUserStitchedVideoId, parseVirtualMediaId, sortSegmentRows } = require('../virtual-media');
 const { canAccessFromRow } = require('../visibility');
 
 const DATA_DIR = process.env.DATA_DIR || '/data';
@@ -82,6 +82,46 @@ function getVirtualSegmentRows(db, mediaId, req) {
     .filter(row => getStitchGroupPath(row) === virtualRef.groupPath);
   if (!segmentRows.length) return null;
   return sortSegmentRows(segmentRows);
+}
+
+function getUserStitchedSegmentRows(db, mediaId) {
+  const videoId = parseUserStitchedVideoId(mediaId);
+  if (videoId === null) return null;
+
+  const video = db.prepare('SELECT * FROM stitched_videos WHERE id = ?').get(videoId);
+  if (!video) return null;
+
+  const clips = db.prepare(
+    `SELECT svc.media_id, svc.position, svc.enabled,
+            m.file_path, m.file_name, m.duration
+       FROM stitched_video_clips svc
+       JOIN media m ON m.id = svc.media_id
+      WHERE svc.stitched_video_id = ? AND svc.enabled = 1
+      ORDER BY svc.position ASC, svc.id ASC`
+  ).all(videoId);
+
+  if (!clips.length) return null;
+  return clips;
+}
+
+function isStitchedMediaId(mediaId) {
+  return isVirtualMediaId(mediaId) || isUserStitchedVideoId(mediaId);
+}
+
+function getStitchedSegmentFilePaths(db, mediaId, req) {
+  if (isUserStitchedVideoId(mediaId)) {
+    const rows = getUserStitchedSegmentRows(db, mediaId);
+    return rows ? rows.map(r => r.file_path) : null;
+  }
+  const rows = getVirtualSegmentRows(db, mediaId, req);
+  return rows ? rows.map(r => r.file_path) : null;
+}
+
+function getStitchedSegmentRowsForSession(db, mediaId, req) {
+  if (isUserStitchedVideoId(mediaId)) {
+    return getUserStitchedSegmentRows(db, mediaId);
+  }
+  return getVirtualSegmentRows(db, mediaId, req);
 }
 
 function getAudioCodec(row) {
@@ -327,8 +367,8 @@ function ensureVirtualHlsJob(mediaId, req) {
   }
 
   const db = getDb();
-  const virtualSegments = getVirtualSegmentRows(db, mediaId, req);
-  if (!virtualSegments) return null;
+  const filePaths = getStitchedSegmentFilePaths(db, mediaId, req);
+  if (!filePaths || !filePaths.length) return null;
 
   const hlsRoot = path.join(DATA_DIR, 'tmp', 'hls');
   fs.mkdirSync(hlsRoot, { recursive: true });
@@ -338,7 +378,7 @@ function ensureVirtualHlsJob(mediaId, req) {
 
   const playlistPath = path.join(jobDir, 'index.m3u8');
   const segmentPattern = path.join(jobDir, 'seg-%06d.ts');
-  const concatListPath = createConcatListFile(virtualSegments.map(row => row.file_path));
+  const concatListPath = createConcatListFile(filePaths);
   const diag = createFfmpegDiagnostics(`hls virtual ${mediaId}`);
 
   const job = {
@@ -386,7 +426,7 @@ function getExistingVirtualHlsJob(mediaId) {
 // GET /stream/:id/hls/index.m3u8 - iOS/Safari-friendly compatibility stream for virtual videos
 router.get('/:id/hls/index.m3u8', async (req, res) => {
   if (checkClientBlocked(req, res)) return;
-  if (!isVirtualMediaId(req.params.id)) {
+  if (!isStitchedMediaId(req.params.id)) {
     return res.status(400).json({ error: 'HLS compatibility is available for virtual videos only' });
   }
 
@@ -407,7 +447,7 @@ router.get('/:id/hls/index.m3u8', async (req, res) => {
 // GET /stream/:id/hls/:segment - HLS segment files for virtual compatibility stream
 router.get('/:id/hls/:segment', async (req, res) => {
   if (checkClientBlocked(req, res)) return;
-  if (!isVirtualMediaId(req.params.id)) {
+  if (!isStitchedMediaId(req.params.id)) {
     return res.status(400).json({ error: 'HLS compatibility is available for virtual videos only' });
   }
 
@@ -436,7 +476,7 @@ router.get('/:id/transcode', (req, res) => {
   if (checkClientBlocked(req, res)) return;
   const db = getDb();
   const startSeconds = parseStartSeconds(req.query.start);
-  const virtualSegments = getVirtualSegmentRows(db, req.params.id, req);
+  const virtualSegments = getStitchedSegmentRowsForSession(db, req.params.id, req);
   const clientIp = getClientIp(req);
   const ua = req.headers['user-agent'] || '';
   console.info(
@@ -481,9 +521,14 @@ router.get('/:id/transcode', (req, res) => {
     }
 
     const concatListPath = createConcatListFile(virtualSegments.map(row => row.file_path));
+    const sessionTitle = virtualSegments[0]
+      ? (isUserStitchedVideoId(req.params.id)
+          ? String(virtualSegments[0].file_name || '')
+          : path.basename(path.dirname(virtualSegments[0].file_path) || virtualSegments[0].file_name))
+      : req.params.id;
     const sessionId = upsertSession({
       mediaId: req.params.id,
-      title: path.basename(path.dirname(virtualSegments[0].file_path) || virtualSegments[0].file_name),
+      title: sessionTitle,
       type: 'transcode',
       ip: req.ip || req.socket?.remoteAddress || 'unknown',
       userAgent: req.headers['user-agent'] || '',
@@ -657,7 +702,7 @@ router.get('/:id/transcode', (req, res) => {
 router.get('/:id', (req, res) => {
   if (checkClientBlocked(req, res)) return;
   const db = getDb();
-  if (isVirtualMediaId(req.params.id)) {
+  if (isStitchedMediaId(req.params.id)) {
     return res.status(400).json({ error: 'Virtual videos require compatibility streaming' });
   }
 

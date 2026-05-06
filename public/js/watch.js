@@ -749,7 +749,13 @@
     if (visibilityBadge) visibilityBadge.style.display = adminModeEnabled && mediaIsAdminOnly ? 'inline-flex' : 'none';
     const editLink = document.getElementById('watch-admin-edit');
     if (editLink) {
-      editLink.href = `/admin/?tab=library&edit=${encodeURIComponent(media.id)}`;
+      if (media.is_user_stitched) {
+        editLink.href = `/admin/?tab=stitched`;
+        editLink.textContent = 'Edit Stitched Video';
+      } else {
+        editLink.href = `/admin/?tab=library&edit=${encodeURIComponent(media.id)}`;
+        editLink.textContent = 'Edit Metadata';
+      }
       editLink.style.display = adminModeEnabled ? 'inline-flex' : 'none';
     }
 

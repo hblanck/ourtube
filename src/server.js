@@ -21,6 +21,7 @@ const adminApiRouter = require('./routes/admin-api');
 const streamRouter = require('./routes/stream');
 const { requireAdminAuth } = require('./admin-auth');
 const { canAccessFromRow } = require('./visibility');
+const { parseUserStitchedVideoId } = require('./virtual-media');
 
 const PORT = parseInt(process.env.PORT) || 3000;
 const DATA_DIR = process.env.DATA_DIR || '/data';
@@ -136,6 +137,26 @@ app.use('/stream', streamLimiter, streamRouter);
 // Thumbnail serving
 app.get('/thumbnail/:id', thumbnailLimiter, (req, res) => {
   const db = getDb();
+
+  // Handle user-defined stitched video thumbnails — use the first enabled clip's thumbnail
+  const stitchedId = parseUserStitchedVideoId(req.params.id);
+  if (stitchedId !== null) {
+    const clip = db.prepare(
+      `SELECT m.thumbnail_path, m.visibility AS media_visibility, sl.visibility AS source_visibility
+         FROM stitched_video_clips svc
+         JOIN media m ON m.id = svc.media_id
+         LEFT JOIN source_locations sl ON sl.id = m.source_location_id
+        WHERE svc.stitched_video_id = ? AND svc.enabled = 1
+        ORDER BY svc.position ASC, svc.id ASC LIMIT 1`
+    ).get(stitchedId);
+    if (!clip || !clip.thumbnail_path || !fs.existsSync(clip.thumbnail_path)) {
+      return res.status(404).sendFile(path.join(__dirname, '..', 'public', 'img', 'no-thumb.svg'), err => {
+        if (err) res.status(404).end();
+      });
+    }
+    return res.sendFile(clip.thumbnail_path);
+  }
+
   const row = db.prepare(
     `SELECT m.thumbnail_path, m.visibility AS media_visibility, sl.visibility AS source_visibility
        FROM media m

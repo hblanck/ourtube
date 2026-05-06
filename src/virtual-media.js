@@ -230,12 +230,88 @@ function aggregateMediaRows(rows) {
   return items;
 }
 
+// ── User-defined stitched video IDs ───────────────────────────────────────────
+// Format: "stitch_<integer>"
+
+function buildUserStitchedVideoId(id) {
+  return `stitch_${id}`;
+}
+
+function parseUserStitchedVideoId(mediaId) {
+  const match = /^stitch_(\d+)$/.exec(String(mediaId || ''));
+  if (!match) return null;
+  return parseInt(match[1], 10);
+}
+
+function isUserStitchedVideoId(mediaId) {
+  return parseUserStitchedVideoId(mediaId) !== null;
+}
+
+function buildUserStitchedVideoItem(video, clips, options = {}) {
+  const enabledClips = clips.filter(c => c.enabled !== 0);
+  const totalDuration = enabledClips.reduce((sum, c) => sum + (Number(c.media_duration) || 0), 0);
+  const totalSize = enabledClips.reduce((sum, c) => sum + (Number(c.media_size) || 0), 0);
+  const firstClip = enabledClips[0] || clips[0];
+
+  const item = {
+    id: buildUserStitchedVideoId(video.id),
+    type: 'video',
+    file_name: `${String(video.name || 'stitched').replace(/[^a-zA-Z0-9_.-]/g, '_')}.mp4`,
+    friendly_name: video.name,
+    description: video.description || `${enabledClips.length} clip${enabledClips.length === 1 ? '' : 's'} stitched`,
+    duration: totalDuration,
+    size: totalSize,
+    width: firstClip?.media_width || null,
+    height: firstClip?.media_height || null,
+    codec: 'virtual',
+    format: 'virtual',
+    thumbnail_path: firstClip?.media_thumbnail_path || null,
+    thumbnail_media_id: firstClip?.media_id || null,
+    year: null,
+    location: null,
+    tags: [],
+    faces_detected: 0,
+    view_count: 0,
+    is_virtual: 1,
+    is_user_stitched: 1,
+    segment_count: enabledClips.length,
+    visibility: video.visibility || 'all',
+    created_at: video.created_at,
+    modified_at: video.updated_at,
+    indexed_at: video.updated_at,
+    faces: [],
+  };
+
+  if (options.includeSegments) {
+    // For admin mode, include all clips (enabled and disabled).
+    // For public view, include only enabled clips for playback.
+    const segmentsToInclude = options.adminMode ? clips : enabledClips;
+    item.segments = segmentsToInclude.map(c => ({
+      id: c.media_id,
+      clip_id: c.id,
+      file_path: c.media_file_path,
+      file_name: c.media_file_name,
+      friendly_name: c.media_friendly_name,
+      duration: c.media_duration,
+      thumbnail_path: c.media_thumbnail_path,
+      position: c.position,
+      enabled: c.enabled !== 0,
+    }));
+  }
+
+  return item;
+}
+
 module.exports = {
   aggregateMediaRows,
+  buildUserStitchedVideoId,
+  buildUserStitchedVideoItem,
   buildVirtualMediaId,
   buildVirtualMediaItem,
   getStitchGroupPath,
+  isUserStitchedVideoId,
   isVirtualMediaId,
+  parseUserStitchedVideoId,
   parseVirtualMediaId,
   parseTags,
   sortMediaItems,
