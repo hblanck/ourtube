@@ -549,9 +549,9 @@
   function readFeaturedSectionPreference() {
     try {
       const stored = localStorage.getItem(FEATURED_SECTION_VISIBLE_KEY);
-      return stored !== '0';
+      return stored === '1';
     } catch {
-      return true;
+      return false;
     }
   }
 
