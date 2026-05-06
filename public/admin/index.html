@@ -2468,6 +2468,7 @@
   }
 
   let stitchSearchTimer = null;
+  const SEARCH_DEBOUNCE_MS = 350;
   async function runStitchSearch() {
     const q = String(document.getElementById('stitch-search-input')?.value || '').trim();
     const resultsEl = document.getElementById('stitch-search-results');
@@ -2522,7 +2523,7 @@
   // Search on input
   document.getElementById('stitch-search-input')?.addEventListener('input', () => {
     clearTimeout(stitchSearchTimer);
-    stitchSearchTimer = setTimeout(runStitchSearch, 350);
+    stitchSearchTimer = setTimeout(runStitchSearch, SEARCH_DEBOUNCE_MS);
   });
 
   function openStitchEditor(video) {

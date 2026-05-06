@@ -1248,10 +1248,10 @@ router.post('/stitched-videos', (req, res) => {
 
   const videoId = create();
   const video = db.prepare('SELECT * FROM stitched_videos WHERE id = ?').get(videoId);
-  const clips2 = getStitchedVideoClips(db, videoId);
+  const createdClips = getStitchedVideoClips(db, videoId);
 
   logAdminAudit(db, req, 'stitched_video.create', { videoId, name });
-  res.status(201).json(buildUserStitchedVideoItem(video, clips2, { includeSegments: true, adminMode: true }));
+  res.status(201).json(buildUserStitchedVideoItem(video, createdClips, { includeSegments: true, adminMode: true }));
 });
 
 // GET /api/admin/stitched-videos/:id
