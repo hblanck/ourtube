@@ -55,8 +55,6 @@ a { color: inherit; text-decoration: none; }
   gap: 16px;
   height: 100%;
   padding: 0 92px 0 16px;
-  max-width: 1600px;
-  margin: 0 auto;
 }
 
 .header-theme-toggle {
@@ -115,6 +113,7 @@ a { color: inherit; text-decoration: none; }
   display: flex;
   gap: 4px;
   flex-shrink: 0;
+  margin-left: auto;
 }
 
 .nav-link {
@@ -1430,6 +1429,42 @@ a { color: inherit; text-decoration: none; }
 }
 
 .admin-section-subtitle-tight { margin-bottom: 8px; }
+
+.admin-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.admin-metric-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  text-align: center;
+}
+
+.admin-metric-label {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.admin-metric-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 4px;
+}
+
+.admin-metric-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+}
 
 .settings-form { max-width: 480px; }
 

@@ -1108,4 +1108,81 @@ router.post('/media/:id/reindex', async (req, res) => {
   );
 });
 
+// ── Metrics & Analytics ────────────────────────────────────────────────────────
+
+// GET /api/admin/metrics/top-videos — top 10 most viewed videos
+router.get('/metrics/top-videos', (req, res) => {
+  const db = getDb();
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 10));
+  
+  const rows = db.prepare(
+    `SELECT id, friendly_name, file_name, type, view_count, duration, size, year, location
+       FROM media
+      WHERE view_count > 0
+      ORDER BY view_count DESC
+      LIMIT ?`
+  ).all(limit);
+  
+  res.json({ items: rows });
+});
+
+// GET /api/admin/metrics/top-users — most active users by unique IP
+router.get('/metrics/top-users', (req, res) => {
+  const db = getDb();
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 10));
+  
+  const rows = db.prepare(
+    `SELECT client_ip, COUNT(*) as session_count, SUM(bytes_sent) as total_bytes_sent,
+            SUM(duration_seconds) as total_duration_seconds, COUNT(DISTINCT media_id) as media_count,
+            MIN(started_at) as first_session_at, MAX(ended_at) as last_session_at
+       FROM client_session_log
+      WHERE client_ip IS NOT NULL
+      GROUP BY client_ip
+      ORDER BY session_count DESC
+      LIMIT ?`
+  ).all(limit);
+  
+  res.json({ items: rows });
+});
+
+// GET /api/admin/metrics/session-stats — average session duration and view counts
+router.get('/metrics/session-stats', (req, res) => {
+  const db = getDb();
+  
+  const stats = db.prepare(
+    `SELECT
+        COUNT(*) as total_sessions,
+        COUNT(DISTINCT client_ip) as unique_ips,
+        COUNT(DISTINCT media_id) as media_viewed,
+        AVG(COALESCE(duration_seconds, 0)) as avg_duration_seconds,
+        SUM(COALESCE(duration_seconds, 0)) as total_duration_seconds,
+        SUM(bytes_sent) as total_bytes_sent,
+        SUM(request_count) as total_requests,
+        MIN(started_at) as earliest_session,
+        MAX(ended_at) as latest_session
+     FROM client_session_log`
+  ).get();
+  
+  res.json(stats || {});
+});
+
+// GET /api/admin/metrics/library-stats — total views and engagement
+router.get('/metrics/library-stats', (req, res) => {
+  const db = getDb();
+  
+  const stats = db.prepare(
+    `SELECT
+        (SELECT COUNT(*) FROM media) as total_items,
+        (SELECT COUNT(*) FROM media WHERE type = 'video') as videos,
+        (SELECT COUNT(*) FROM media WHERE type = 'photo') as photos,
+        (SELECT SUM(view_count) FROM media) as total_views,
+        (SELECT AVG(view_count) FROM media WHERE view_count > 0) as avg_views_per_viewed_item,
+        (SELECT COUNT(*) FROM media WHERE view_count > 0) as items_with_views,
+        (SELECT COUNT(*) FROM media WHERE type = 'video' AND view_count > 0) as videos_viewed,
+        (SELECT COUNT(*) FROM media WHERE type = 'photo' AND view_count > 0) as photos_viewed`
+  ).get();
+  
+  res.json(stats || {});
+});
+
 module.exports = router;

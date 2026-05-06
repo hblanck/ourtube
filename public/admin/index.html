@@ -117,6 +117,58 @@
             </div>
           </div>
         </div>
+
+        <h3 class="admin-section-subtitle">📊 Engagement Metrics</h3>
+        <div class="admin-metrics-grid">
+          <div class="admin-metric-card">
+            <div class="admin-metric-label">Total Views</div>
+            <div class="admin-metric-value" id="metric-total-views">—</div>
+            <div class="admin-metric-meta" id="metric-total-views-meta"></div>
+          </div>
+          <div class="admin-metric-card">
+            <div class="admin-metric-label">Avg Session Duration</div>
+            <div class="admin-metric-value" id="metric-avg-duration">—</div>
+            <div class="admin-metric-meta" id="metric-avg-duration-meta"></div>
+          </div>
+          <div class="admin-metric-card">
+            <div class="admin-metric-label">Total Sessions</div>
+            <div class="admin-metric-value" id="metric-total-sessions">—</div>
+            <div class="admin-metric-meta" id="metric-total-sessions-meta"></div>
+          </div>
+          <div class="admin-metric-card">
+            <div class="admin-metric-label">Unique Viewers</div>
+            <div class="admin-metric-value" id="metric-unique-ips">—</div>
+            <div class="admin-metric-meta" id="metric-unique-ips-meta"></div>
+          </div>
+        </div>
+
+        <h3 class="admin-section-subtitle">🎬 Top Videos (Most Viewed)</h3>
+        <div id="top-videos-wrap">
+          <table class="data-table" id="top-videos-table">
+            <thead>
+              <tr>
+                <th>#</th><th>Title</th><th>Views</th><th>Type</th><th>Duration</th><th>Size</th><th>Year</th><th>Location</th>
+              </tr>
+            </thead>
+            <tbody id="top-videos-tbody">
+              <tr><td colspan="8" class="table-empty-cell">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 class="admin-section-subtitle">👥 Most Active Users (by IP)</h3>
+        <div id="top-users-wrap">
+          <table class="data-table" id="top-users-table">
+            <thead>
+              <tr>
+                <th>#</th><th>Client IP</th><th>Sessions</th><th>Media Count</th><th>Total Duration</th><th>Data Sent</th><th>Last Seen</th>
+              </tr>
+            </thead>
+            <tbody id="top-users-tbody">
+              <tr><td colspan="7" class="table-empty-cell">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <section class="admin-section" id="tab-infrastructure">
@@ -193,7 +245,7 @@
             <tr>
               <th><input type="checkbox" id="library-select-all" /></th>
               <th>Name</th><th>Type</th><th>Year</th><th>Location</th><th>Source</th>
-              <th>Visibility</th><th>Duration</th><th>Size</th><th>Actions</th>
+              <th>Visibility</th><th>Views</th><th>Duration</th><th>Size</th><th>Actions</th>
             </tr>
           </thead>
           <tbody id="library-tbody"></tbody>
@@ -580,6 +632,7 @@
   </div>
 
 
+  <script src="/js/admin-mode.js"></script>
   <script>
   'use strict';
   // ── Utilities ────────────────────────────────────────────
@@ -596,7 +649,7 @@
     const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=Math.floor(s%60);
     return h?`${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`:`${m}:${String(sec).padStart(2,'0')}`;
   }
-  function fmtDate(s) { try { return s ? new Date(s).toLocaleString() : '—'; } catch { return s||'—'; } }
+  function fmtDate(s) { try { if (!s) return '—'; const iso = typeof s === 'string' && /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(s) && !s.endsWith('Z') && !/[+-]\d{2}:?\d{2}$/.test(s) ? s.replace(' ', 'T') + 'Z' : s; return new Date(iso).toLocaleString(); } catch { return s||'—'; } }
   function fmtBool(v) { return v ? 'Yes' : 'No'; }
   function fmtInteger(v) { return Number.isFinite(Number(v)) ? Number(v).toLocaleString() : '—'; }
   function fmtVisibility(v) {
@@ -755,6 +808,9 @@
     pollActiveSessions();
     loadBlockedClients();
     loadSystemInfo();
+    loadMetrics();
+    loadTopVideos();
+    loadTopUsers();
   }
 
   async function loadSystemInfo() {
@@ -861,6 +917,108 @@
     }
   }
 
+  // ── Metrics & Analytics ──────────────────────────────────
+  async function loadMetrics() {
+    try {
+      const [libRes, sessRes] = await Promise.all([
+        adminFetch('/api/admin/metrics/library-stats'),
+        adminFetch('/api/admin/metrics/session-stats'),
+      ]);
+      
+      const lib = libRes.ok ? await libRes.json() : {};
+      const sess = sessRes.ok ? await sessRes.json() : {};
+
+      const totalViews = Number(lib.total_views || 0);
+      const avgDuration = Number(sess.avg_duration_seconds || 0);
+      const totalSessions = Number(sess.total_sessions || 0);
+      const uniqueIps = Number(sess.unique_ips || 0);
+
+      document.getElementById('metric-total-views').textContent = fmtInteger(totalViews);
+      document.getElementById('metric-total-views-meta').textContent = 
+        lib.items_with_views ? `across ${lib.items_with_views} items` : '';
+
+      document.getElementById('metric-avg-duration').textContent = fmtDur(avgDuration);
+      document.getElementById('metric-avg-duration-meta').textContent = 
+        totalSessions ? `across ${fmtInteger(totalSessions)} sessions` : '';
+
+      document.getElementById('metric-total-sessions').textContent = fmtInteger(totalSessions);
+      document.getElementById('metric-total-sessions-meta').textContent =
+        lib.media_viewed ? `${lib.media_viewed} unique items viewed` : '';
+
+      document.getElementById('metric-unique-ips').textContent = fmtInteger(uniqueIps);
+      document.getElementById('metric-unique-ips-meta').textContent =
+        sess.total_bytes_sent ? `${fmtSize(sess.total_bytes_sent)} sent` : '';
+    } catch(e) {
+      console.error('Failed to load metrics:', e);
+    }
+  }
+
+  async function loadTopVideos() {
+    const tbody = document.getElementById('top-videos-tbody');
+    if (!tbody) return;
+
+    try {
+      const res = await adminFetch('/api/admin/metrics/top-videos?limit=10');
+      if (!res.ok) throw new Error(`Request failed (${res.status})`);
+
+      const data = await res.json();
+      if (!data.items || !data.items.length) {
+        tbody.innerHTML = '<tr><td colspan="8" class="table-empty-cell">No video views recorded</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = data.items.map((item, idx) => `
+        <tr>
+          <td class="cell-xs">${idx + 1}</td>
+          <td><a href="/watch.html?id=${encodeURIComponent(item.id)}" target="_blank" title="${escHtml(item.file_name)}">${escHtml(item.friendly_name || item.file_name)}</a></td>
+          <td class="cell-xs">${fmtInteger(item.view_count)}</td>
+          <td class="cell-xs">${item.type === 'video' ? '🎬' : '📷'}</td>
+          <td class="cell-xs">${item.duration ? fmtDur(item.duration) : '—'}</td>
+          <td class="cell-xs">${fmtSize(item.size)}</td>
+          <td class="cell-xs">${item.year || '—'}</td>
+          <td class="cell-xs">${escHtml(item.location || '—')}</td>
+        </tr>
+      `).join('');
+    } catch(e) {
+      console.error('Failed to load top videos:', e);
+      tbody.innerHTML = '<tr><td colspan="8" class="table-error-cell">Failed to load</td></tr>';
+    }
+  }
+
+  async function loadTopUsers() {
+    const tbody = document.getElementById('top-users-tbody');
+    if (!tbody) return;
+
+    try {
+      const res = await adminFetch('/api/admin/metrics/top-users?limit=10');
+      if (!res.ok) throw new Error(`Request failed (${res.status})`);
+
+      const data = await res.json();
+      if (!data.items || !data.items.length) {
+        tbody.innerHTML = '<tr><td colspan="7" class="table-empty-cell">No session data</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = data.items.map((item, idx) => {
+        const lastSeen = item.last_session_at ? new Date(item.last_session_at).toLocaleString() : '—';
+        return `
+          <tr>
+            <td class="cell-xs">${idx + 1}</td>
+            <td><code class="code-xs">${escHtml(item.client_ip)}</code></td>
+            <td class="cell-xs">${fmtInteger(item.session_count)}</td>
+            <td class="cell-xs">${fmtInteger(item.media_count)}</td>
+            <td class="cell-xs">${fmtDur(item.total_duration_seconds || 0)}</td>
+            <td class="cell-xs">${fmtSize(item.total_bytes_sent)}</td>
+            <td class="cell-xs cell-nowrap">${lastSeen}</td>
+          </tr>
+        `;
+      }).join('');
+    } catch(e) {
+      console.error('Failed to load top users:', e);
+      tbody.innerHTML = '<tr><td colspan="7" class="table-error-cell">Failed to load</td></tr>';
+    }
+  }
+
   let scanPollTimer = null;
   let scanWasInProgress = false;
   async function pollScanStatus() {
@@ -936,8 +1094,6 @@
         tbody.innerHTML = '<tr><td colspan="7" class="table-empty-cell">No active sessions</td></tr>';
       } else {
         tbody.innerHTML = sessions.map(s => {
-          const elapsed = Math.floor((Date.now() - s.startedAt) / 1000);
-          const elapsedStr = elapsed < 60 ? `${elapsed}s` : `${Math.floor(elapsed/60)}m ${elapsed%60}s`;
           const ua = s.userAgent || '—';
           const uaShort = ua.length > 60 ? ua.slice(0, 60) + '…' : ua;
           const typeBadge = s.type === 'transcode'
@@ -948,7 +1104,7 @@
             <td title="${escHtml(ua)}" class="cell-xs cell-ellipsis-220">${escHtml(uaShort)}</td>
             <td class="cell-xs"><a href="/watch.html?id=${encodeURIComponent(s.mediaId)}" target="_blank">${escHtml(s.title)}</a></td>
             <td>${typeBadge}</td>
-            <td class="cell-xs">${elapsedStr} ago</td>
+            <td class="cell-xs">${fmtDate(new Date(s.startedAt))}</td>
             <td class="cell-xs">${fmtSize(s.bytesSent)}</td>
             <td class="cell-xs"><button class="btn btn-small btn-danger-text" onclick="openKillSession('${escHtml(s.id)}','${escHtml(s.ip)}','${escHtml(s.title)}')">Kill</button></td>
           </tr>`;
@@ -1349,7 +1505,7 @@
 
   async function loadLibrary() {
     const tbody = document.getElementById('library-tbody');
-    tbody.innerHTML = '<tr><td colspan="10" class="table-empty-cell">Loading…</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="11" class="table-empty-cell">Loading…</td></tr>';
 
     const q = document.getElementById('library-search').value;
     const type = document.getElementById('library-type').value;
@@ -1366,7 +1522,7 @@
     libraryCurrentIds = (data.items || []).map(item => String(item.id));
 
     if (!data.items.length) {
-      tbody.innerHTML = '<tr><td colspan="10" class="table-empty-cell">No items found.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="11" class="table-empty-cell">No items found.</td></tr>';
       document.getElementById('library-pagination').innerHTML = '';
       updateLibrarySelectionUi();
       await loadSkippedFiles();
@@ -1400,6 +1556,7 @@
             : ''}
         </td>
         <td class="cell-xs">${fmtVisibility(m.visibility)} / ${fmtVisibility(m.source_visibility)}</td>
+        <td class="cell-xs">${fmtInteger(m.view_count || 0)}</td>
         <td>${fmtDur(m.duration)}</td>
         <td>${fmtSize(m.size)}</td>
         <td>
