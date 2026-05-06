@@ -1240,6 +1240,7 @@
       stitchPromptShown = true;
       if (confirm('Show videos from this folder as one stitched virtual video when possible?')) {
         stitchInput.checked = true;
+        stitchInput.dispatchEvent(new Event('change'));
       }
     }
 
