@@ -179,6 +179,7 @@ function initDb() {
 
   ensureColumn('source_locations', 'stitch_directories', 'INTEGER NOT NULL DEFAULT 0');
   ensureColumn('source_locations', 'visibility', "TEXT NOT NULL DEFAULT 'all'");
+  ensureColumn('source_locations', 'stitched_video_id', 'INTEGER REFERENCES stitched_videos(id) ON DELETE SET NULL');
   ensureColumn('media', 'visibility', "TEXT NOT NULL DEFAULT 'all'");
 
   // Insert default settings if not present

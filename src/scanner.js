@@ -269,6 +269,12 @@ async function indexFile(filePath, locationId) {
 }
 
 async function scanLocation(location) {
+  // Skip manually-curated stitched video locations — their clips are defined in the DB, not the filesystem
+  if (location.stitched_video_id || String(location.path || '').startsWith('stitch://')) {
+    scanInfo(`[scanner] Skipping manually-curated location: ${location.name}`);
+    return { found: 0, indexed: 0, errors: 0 };
+  }
+
   const entries = getLocationEntries(location);
   scanInfo(`[scanner] Scanning location: ${location.name} (${entries.length} path entries)`);
 

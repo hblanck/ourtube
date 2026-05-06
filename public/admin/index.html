@@ -208,22 +208,6 @@
           </thead>
           <tbody id="locations-tbody"></tbody>
         </table>
-
-        <h3 class="admin-section-subtitle">🎬 Custom Stitched Videos</h3>
-        <p class="admin-help-text" style="margin:0 0 12px">Create custom videos by combining individual clips in any order. Drag to reorder, toggle clips on or off.</p>
-        <div class="admin-block-mb-16">
-          <button class="btn btn-primary" onclick="openStitchEditor(null)">+ New Stitched Video</button>
-        </div>
-        <table class="data-table" id="stitch-table">
-          <thead>
-            <tr>
-              <th>Name</th><th>Clips</th><th>Duration</th><th>Visibility</th><th>Created</th><th>Actions</th>
-            </tr>
-          </thead>
-          <tbody id="stitch-tbody">
-            <tr><td colspan="6" class="table-empty-cell">Loading…</td></tr>
-          </tbody>
-        </table>
       </section>
 
       <!-- Media Library -->
@@ -436,7 +420,8 @@
           <input type="text" name="name" class="form-input" placeholder="e.g. Family Videos" required />
         </div>
         <div class="form-group">
-          <label class="form-label">Collection Entries <span class="required-indicator">*</span></label>
+          <label class="form-label">Collection Entries</label>
+          <p class="admin-help-text" style="margin:0 0 6px">Optional when using manually curated clips (stitch enabled). Required otherwise.</p>
           <div class="admin-actions-row">
             <input type="text" id="location-entry-path" class="form-input form-flex-1 form-minw-280" placeholder="/media/nas/videos or /media/nas/videos/file.mp4" />
             <select id="location-entry-type" class="form-select form-select-max-140">
@@ -495,9 +480,29 @@
             <input type="checkbox" name="stitch_directories" value="1" />
             <span>
               Stitch folder clips into one virtual video
-              <div class="admin-help-text">When enabled, videos inside each selected folder or first-level child folder are shown as one longer watchable item.</div>
+              <div class="admin-help-text">When enabled, videos inside each selected folder or first-level child folder are shown as one longer watchable item. You can also manually curate the clip order below.</div>
             </span>
           </label>
+        </div>
+        <div id="loc-clips-section" style="display:none">
+          <div class="form-group">
+            <label class="form-label">
+              Manually Curated Clips
+              <span class="stitch-clip-count-badge" id="stitch-clip-count">0</span>
+            </label>
+            <p class="admin-help-text" style="margin:0 0 8px">Drag to reorder. When clips are set here they define the video instead of the auto-scanned folder contents.</p>
+            <div id="stitch-clip-list" class="stitch-clip-list">
+              <div class="stitch-clip-list-empty">No clips yet. Search and add clips below.</div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Add Clips</label>
+            <div class="stitch-search-row">
+              <input type="search" id="stitch-search-input" class="form-input" placeholder="Search videos by name…" autocomplete="off" />
+              <button type="button" class="btn btn-secondary btn-small" onclick="runStitchSearch()">Search</button>
+            </div>
+            <div id="stitch-search-results" class="stitch-search-results" style="display:none"></div>
+          </div>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" onclick="closeModal('location-modal')">Cancel</button>
@@ -648,79 +653,6 @@
   </div>
 
 
-  <!-- Stitched Video Editor Modal -->
-  <div class="modal-overlay" id="stitch-modal">
-    <div class="modal stitch-editor-modal">
-      <div class="modal-header">
-        <div class="modal-title" id="stitch-modal-title">New Stitched Video</div>
-        <button class="modal-close" onclick="closeModal('stitch-modal')">✕</button>
-      </div>
-
-      <div class="form-row" style="gap:16px;align-items:flex-start">
-        <!-- Left: form + clip list -->
-        <div style="flex:1;min-width:0">
-          <input type="hidden" id="stitch-edit-id" />
-          <div class="form-group">
-            <label class="form-label">Name <span class="required-indicator">*</span></label>
-            <input type="text" id="stitch-name" class="form-input" placeholder="e.g. Summer Vacation 2023" required />
-          </div>
-          <div class="form-group">
-            <label class="form-label">Description</label>
-            <textarea id="stitch-description" class="form-textarea" rows="2" placeholder="Optional description"></textarea>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Visibility</label>
-            <select id="stitch-visibility" class="form-select">
-              <option value="all">All</option>
-              <option value="admin">Admin only</option>
-              <option value="none">None</option>
-            </select>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">
-              Clips
-              <span class="stitch-clip-count-badge" id="stitch-clip-count">0</span>
-            </label>
-            <div id="stitch-clip-list" class="stitch-clip-list">
-              <div class="stitch-clip-list-empty">No clips yet. Search and add clips below.</div>
-            </div>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">Add Clips</label>
-            <div class="stitch-search-row">
-              <input type="search" id="stitch-search-input" class="form-input" placeholder="Search videos by name…" autocomplete="off" />
-              <button type="button" class="btn btn-secondary btn-small" onclick="runStitchSearch()">Search</button>
-            </div>
-            <div id="stitch-search-results" class="stitch-search-results" style="display:none"></div>
-          </div>
-        </div>
-
-        <!-- Right: preview -->
-        <div style="flex:0 0 320px;min-width:220px">
-          <div class="form-group">
-            <label class="form-label">Preview</label>
-            <div class="stitch-preview-container" id="stitch-preview-container">
-              <div class="stitch-preview-placeholder" id="stitch-preview-placeholder">
-                Save first to enable preview
-              </div>
-            </div>
-            <div style="display:flex;gap:8px;margin-top:4px">
-              <button type="button" class="btn btn-secondary btn-small" id="stitch-preview-btn" onclick="openStitchPreview()" style="display:none">▶ Open Full Preview</button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="modal-footer">
-        <button type="button" class="btn btn-danger btn-small" id="stitch-delete-btn" onclick="deleteStitchedVideo()" style="display:none">Delete</button>
-        <button type="button" class="btn btn-secondary" onclick="closeModal('stitch-modal')">Cancel</button>
-        <button type="button" class="btn btn-primary" onclick="saveStitchedVideo()">Save</button>
-      </div>
-    </div>
-  </div>
-
   <script src="/js/admin-mode.js"></script>
   <script>
   'use strict';
@@ -858,7 +790,7 @@
 
     if (tab === 'dashboard') loadDashboard();
     if (tab === 'infrastructure') { loadSystemInfo(); loadTelemetryInfo(); }
-    if (tab === 'locations') { loadLocations(); loadStitchedVideos(); }
+    if (tab === 'locations') loadLocations();
     if (tab === 'library') {
       libPage = 1;
       loadLibrarySourceLocationFilter().then(() => loadLibrary());
@@ -1337,22 +1269,34 @@
       tbody.innerHTML = '<tr><td colspan="8" class="table-empty-cell">No source locations. Add one above.</td></tr>';
       return;
     }
-    tbody.innerHTML = locs.map(l => `
-      <tr>
-        <td><strong>${escHtml(l.name)}</strong></td>
-        <td><code class="code-xs">${escHtml((l.entries && l.entries[0] && l.entries[0].path) || l.path)}${(l.entries && l.entries.length > 1) ? ` (+${l.entries.length - 1} more)` : ''}</code></td>
-        <td>${escHtml(l.type)}${l.stitch_directories ? '<div class="helper-note helper-note-info">stitched folders</div>' : ''}</td>
-        <td>${fmtVisibility(l.visibility)}</td>
-        <td>${l.enabled ? '✅' : '❌'}</td>
-        <td>${l.scan_interval}s</td>
-        <td class="cell-xs">${l.last_scanned ? fmtDate(l.last_scanned) : 'Never'}</td>
-        <td>
-          <button class="btn btn-small" onclick="openEditLocation(${l.id})">Edit</button>
-          <button class="btn btn-small" onclick="scanLocation(${l.id})">Scan</button>
-          <button class="btn btn-small" onclick="openSourceVisibilityModal(${l.id})">Apply Visibility</button>
-          <button class="btn btn-small btn-danger-text" onclick="deleteLocation(${l.id})">Delete</button>
-        </td>
-      </tr>`).join('');
+    tbody.innerHTML = locs.map(l => {
+      const isManual = !!l.stitched_video_id;
+      const pathCell = isManual
+        ? '<span class="helper-note helper-note-info">manually curated clips</span>'
+        : `<code class="code-xs">${escHtml((l.entries && l.entries[0] && l.entries[0].path) || l.path)}${(l.entries && l.entries.length > 1) ? ` (+${l.entries.length - 1} more)` : ''}</code>`;
+      const typeCell = `${escHtml(l.type)}${l.stitch_directories ? '<div class="helper-note helper-note-info">stitched</div>' : ''}`;
+      const watchBtn = isManual
+        ? `<a class="btn btn-small" href="/watch.html?id=stitch_${l.stitched_video_id}" target="_blank">Watch</a>`
+        : '';
+      const scanBtn = isManual ? '' : `<button class="btn btn-small" onclick="scanLocation(${l.id})">Scan</button>`;
+      return `
+        <tr>
+          <td><strong>${escHtml(l.name)}</strong></td>
+          <td>${pathCell}</td>
+          <td>${typeCell}</td>
+          <td>${fmtVisibility(l.visibility)}</td>
+          <td>${l.enabled ? '✅' : '❌'}</td>
+          <td>${l.scan_interval}s</td>
+          <td class="cell-xs">${l.last_scanned ? fmtDate(l.last_scanned) : 'Never'}</td>
+          <td>
+            <button class="btn btn-small" onclick="openEditLocation(${l.id})">Edit</button>
+            ${scanBtn}
+            ${watchBtn}
+            <button class="btn btn-small" onclick="openSourceVisibilityModal(${l.id})">Apply Visibility</button>
+            <button class="btn btn-small btn-danger-text" onclick="deleteLocation(${l.id})">Delete</button>
+          </td>
+        </tr>`;
+    }).join('');
   }
 
   function openAddLocation() {
@@ -1363,7 +1307,11 @@
     form.querySelector('[name=stitch_directories]').checked = false;
     locationEntries = [];
     stitchPromptShown = false;
+    stitchClips = [];
     renderLocationEntries();
+    renderStitchClipList();
+    document.getElementById('loc-clips-section').style.display = 'none';
+    document.querySelector('#location-modal .modal').classList.remove('stitch-editor-modal');
     document.getElementById('location-entry-path').value = '/media';
     document.getElementById('location-entry-type').value = 'directory';
     closePathBrowser();
@@ -1384,11 +1332,32 @@
     form.querySelector('[name=scan_interval]').value = loc.scan_interval;
     form.querySelector('[name=enabled]').checked = !!loc.enabled;
     form.querySelector('[name=stitch_directories]').checked = !!loc.stitch_directories;
-    locationEntries = Array.isArray(loc.entries) && loc.entries.length
-      ? loc.entries.map(entry => ({ path: entry.path, type: entry.type === 'file' ? 'file' : 'directory' }))
-      : [{ path: loc.path, type: 'directory' }];
+
+    const rawEntries = Array.isArray(loc.entries) ? loc.entries.filter(e => e.path && !e.path.startsWith('stitch://')) : [];
+    locationEntries = rawEntries.length
+      ? rawEntries.map(entry => ({ path: entry.path, type: entry.type === 'file' ? 'file' : 'directory' }))
+      : (loc.path && !loc.path.startsWith('stitch://') ? [{ path: loc.path, type: 'directory' }] : []);
     stitchPromptShown = true;
     renderLocationEntries();
+
+    // Populate manual clips if present
+    stitchClips = [];
+    if (Array.isArray(loc.manual_clips) && loc.manual_clips.length) {
+      stitchClips = loc.manual_clips.map(c => ({
+        media_id: c.media_id,
+        media_file_name: c.media_file_name,
+        media_friendly_name: c.media_friendly_name,
+        media_duration: c.media_duration,
+        media_thumbnail_path: c.media_thumbnail_path,
+        enabled: c.enabled !== 0,
+      }));
+    }
+    renderStitchClipList();
+
+    const showClips = !!loc.stitch_directories;
+    document.getElementById('loc-clips-section').style.display = showClips ? '' : 'none';
+    document.querySelector('#location-modal .modal').classList.toggle('stitch-editor-modal', showClips);
+
     document.getElementById('location-entry-path').value = '';
     document.getElementById('location-entry-type').value = 'directory';
     closePathBrowser();
@@ -1485,29 +1454,47 @@
     closePathBrowser();
   }
 
-  document.querySelector('#location-form [name=stitch_directories]').addEventListener('change', markStitchEdited);
+  document.querySelector('#location-form [name=stitch_directories]').addEventListener('change', function () {
+    markStitchEdited();
+    const checked = this.checked;
+    document.getElementById('loc-clips-section').style.display = checked ? '' : 'none';
+    document.querySelector('#location-modal .modal').classList.toggle('stitch-editor-modal', checked);
+  });
 
   document.getElementById('location-form').addEventListener('submit', async e => {
     e.preventDefault();
     const form = e.target;
     const id = form.querySelector('[name=id]').value;
+    const stitchChecked = form.querySelector('[name=stitch_directories]').checked;
+
     const entries = locationEntries
       .map(entry => ({ path: String(entry.path || '').trim(), type: entry.type === 'file' ? 'file' : 'directory' }))
       .filter(entry => entry.path);
-    if (!entries.length) {
-      alert('Please add at least one folder or file for this collection.');
+
+    if (!entries.length && !(stitchChecked && stitchClips.length)) {
+      alert('Please add at least one folder or file for this collection, or add clips for a manually curated video.');
       return;
     }
+
     const body = {
       name: form.querySelector('[name=name]').value,
-      path: entries[0].path,
-      entries,
+      path: entries.length ? entries[0].path : undefined,
+      entries: entries.length ? entries : undefined,
       type: form.querySelector('[name=type]').value,
       visibility: form.querySelector('[name=visibility]').value,
       scan_interval: parseInt(form.querySelector('[name=scan_interval]').value),
-      stitch_directories: form.querySelector('[name=stitch_directories]').checked ? 1 : 0,
+      stitch_directories: stitchChecked ? 1 : 0,
       enabled: form.querySelector('[name=enabled]').checked ? 1 : 0
     };
+
+    if (stitchChecked) {
+      body.manual_clips = stitchClips.map((c, i) => ({
+        media_id: c.media_id || c.id,
+        position: i,
+        enabled: c.enabled !== false && c.enabled !== 0,
+      }));
+    }
+
     if (id) {
       await fetch(`/api/admin/locations/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
     } else {
@@ -2361,8 +2348,8 @@
 
   initAdmin().catch(() => {});
 
-  // ── Stitched Videos ───────────────────────────────────────
-  let stitchClips = [];     // current editor clip list
+  // ── Clip curation (used inside the location form) ─────────
+  let stitchClips = [];     // current clip list for the location form
   let stitchDragSrc = null; // drag-and-drop source index
 
   function stitchClipThumbHtml(clip) {
@@ -2447,7 +2434,6 @@
   }
 
   function addStitchClip(mediaRow) {
-    // Avoid duplicates
     if (stitchClips.some(c => (c.media_id || c.id) === mediaRow.id)) {
       alert('This clip is already in the list.');
       return;
@@ -2506,226 +2492,18 @@
     }
   }
 
-  // Triggered from search result click
   function addStitchClipById(id, fileName, friendlyName, duration, thumbnailPath) {
     addStitchClip({ id, file_name: fileName, friendly_name: friendlyName, duration, thumbnail_path: thumbnailPath });
-    // Hide search results after adding
     const resultsEl = document.getElementById('stitch-search-results');
     if (resultsEl) resultsEl.style.display = 'none';
     const searchInput = document.getElementById('stitch-search-input');
     if (searchInput) searchInput.value = '';
   }
 
-  // Search on input
   document.getElementById('stitch-search-input')?.addEventListener('input', () => {
     clearTimeout(stitchSearchTimer);
     stitchSearchTimer = setTimeout(runStitchSearch, SEARCH_DEBOUNCE_MS);
   });
-
-  function openStitchEditor(video) {
-    stitchClips = [];
-    document.getElementById('stitch-edit-id').value = video ? (video._rawId || '') : '';
-    document.getElementById('stitch-name').value = video ? (video.friendly_name || '') : '';
-    document.getElementById('stitch-description').value = video ? (video.description || '') : '';
-    const vis = document.getElementById('stitch-visibility');
-    if (vis) vis.value = video ? (video.visibility || 'all') : 'all';
-
-    const deleteBtn = document.getElementById('stitch-delete-btn');
-    const previewBtn = document.getElementById('stitch-preview-btn');
-    const modalTitle = document.getElementById('stitch-modal-title');
-
-    if (video) {
-      if (modalTitle) modalTitle.textContent = 'Edit Stitched Video';
-      if (deleteBtn) deleteBtn.style.display = '';
-      if (previewBtn) previewBtn.style.display = '';
-
-      // Load clips from segments
-      const segs = Array.isArray(video.segments) ? video.segments : [];
-      stitchClips = segs.map(s => ({
-        media_id: s.id,
-        media_file_name: s.file_name,
-        media_friendly_name: s.friendly_name,
-        media_duration: s.duration,
-        media_thumbnail_path: s.thumbnail_path,
-        enabled: s.enabled !== false && s.enabled !== 0,
-      }));
-    } else {
-      if (modalTitle) modalTitle.textContent = 'New Stitched Video';
-      if (deleteBtn) deleteBtn.style.display = 'none';
-      if (previewBtn) previewBtn.style.display = 'none';
-    }
-
-    renderStitchClipList();
-    updateStitchPreview(video);
-
-    // Hide search results
-    const resultsEl = document.getElementById('stitch-search-results');
-    if (resultsEl) resultsEl.style.display = 'none';
-    const searchInput = document.getElementById('stitch-search-input');
-    if (searchInput) searchInput.value = '';
-
-    openModal('stitch-modal');
-  }
-
-  function updateStitchPreview(video) {
-    const placeholder = document.getElementById('stitch-preview-placeholder');
-    const container = document.getElementById('stitch-preview-container');
-    const previewBtn = document.getElementById('stitch-preview-btn');
-    if (!container) return;
-
-    // Remove old video element
-    const oldVideo = container.querySelector('video');
-    if (oldVideo) { oldVideo.pause(); oldVideo.remove(); }
-
-    if (!video || !video._rawId) {
-      if (placeholder) placeholder.style.display = 'flex';
-      if (previewBtn) previewBtn.style.display = 'none';
-      return;
-    }
-
-    if (placeholder) placeholder.style.display = 'none';
-    if (previewBtn) previewBtn.style.display = '';
-
-    const videoEl = document.createElement('video');
-    videoEl.controls = true;
-    videoEl.style.width = '100%';
-    videoEl.style.height = '100%';
-    videoEl.style.display = 'block';
-    videoEl.preload = 'metadata';
-
-    const ts = Date.now();
-    videoEl.src = `/stream/stitch_${video._rawId}/transcode?_ts=${ts}`;
-    container.insertBefore(videoEl, placeholder);
-  }
-
-  function openStitchPreview() {
-    const id = document.getElementById('stitch-edit-id').value;
-    if (!id) return;
-    window.open(`/watch.html?id=stitch_${id}`, '_blank');
-  }
-
-  async function saveStitchedVideo() {
-    const id = document.getElementById('stitch-edit-id').value;
-    const name = String(document.getElementById('stitch-name')?.value || '').trim();
-    const description = String(document.getElementById('stitch-description')?.value || '').trim();
-    const visibility = document.getElementById('stitch-visibility')?.value || 'all';
-
-    if (!name) {
-      alert('Please enter a name for the stitched video.');
-      return;
-    }
-
-    const clips = stitchClips.map((c, i) => ({
-      media_id: c.media_id || c.id,
-      position: i,
-      enabled: c.enabled !== false && c.enabled !== 0,
-    }));
-
-    try {
-      let res;
-      if (id) {
-        res = await adminFetch(`/api/admin/stitched-videos/${id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, description, visibility, clips }),
-        });
-      } else {
-        res = await adminFetch('/api/admin/stitched-videos', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, description, visibility, clips }),
-        });
-      }
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: 'Unknown error' }));
-        alert('Save failed: ' + (err.error || res.status));
-        return;
-      }
-
-      const saved = await res.json();
-      // Store raw numeric ID from stitch_X ID
-      const rawIdMatch = /^stitch_(\d+)$/.exec(saved.id || '');
-      saved._rawId = rawIdMatch ? rawIdMatch[1] : null;
-
-      // Update editor with saved video (for preview)
-      document.getElementById('stitch-edit-id').value = saved._rawId || '';
-      const deleteBtn = document.getElementById('stitch-delete-btn');
-      const previewBtn = document.getElementById('stitch-preview-btn');
-      if (deleteBtn) deleteBtn.style.display = '';
-      if (previewBtn) previewBtn.style.display = '';
-      if (document.getElementById('stitch-modal-title')) {
-        document.getElementById('stitch-modal-title').textContent = 'Edit Stitched Video';
-      }
-      updateStitchPreview(saved);
-
-      loadStitchedVideos();
-    } catch (err) {
-      alert('Save failed: ' + err.message);
-    }
-  }
-
-  async function deleteStitchedVideo() {
-    const id = document.getElementById('stitch-edit-id').value;
-    if (!id) return;
-    if (!confirm('Delete this stitched video? This cannot be undone.')) return;
-
-    try {
-      const res = await adminFetch(`/api/admin/stitched-videos/${id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.status);
-      closeModal('stitch-modal');
-      loadStitchedVideos();
-    } catch (err) {
-      alert('Delete failed: ' + err.message);
-    }
-  }
-
-  async function loadStitchedVideos() {
-    const tbody = document.getElementById('stitch-tbody');
-    if (!tbody) return;
-
-    try {
-      const res = await adminFetch('/api/admin/stitched-videos');
-      if (!res.ok) throw new Error('Request failed');
-      const items = await res.json();
-
-      if (!items.length) {
-        tbody.innerHTML = '<tr><td colspan="6" class="table-empty-cell">No stitched videos yet. Create one above.</td></tr>';
-        return;
-      }
-
-      tbody.innerHTML = items.map(v => {
-        const rawIdMatch = /^stitch_(\d+)$/.exec(v.id || '');
-        const rawId = rawIdMatch ? rawIdMatch[1] : null;
-        const enabledClips = Array.isArray(v.segments) ? v.segments.filter(s => s.enabled !== false).length : (v.segment_count || 0);
-        return `<tr>
-          <td><strong>${escHtml(v.friendly_name || v.name || '—')}</strong></td>
-          <td>${escHtml(String(enabledClips))} clip${enabledClips !== 1 ? 's' : ''}</td>
-          <td>${fmtDur(v.duration)}</td>
-          <td>${escHtml(fmtVisibility(v.visibility))}</td>
-          <td>${fmtDate(v.created_at)}</td>
-          <td class="cell-actions">
-            <button class="btn btn-secondary btn-small" onclick="editStitchedVideo('${rawId}')">Edit</button>
-            <a class="btn btn-secondary btn-small" href="/watch.html?id=${escHtml(v.id)}" target="_blank">Watch</a>
-          </td>
-        </tr>`;
-      }).join('');
-    } catch (err) {
-      tbody.innerHTML = `<tr><td colspan="6" class="table-empty-cell">Failed to load: ${escHtml(err.message)}</td></tr>`;
-    }
-  }
-
-  async function editStitchedVideo(rawId) {
-    try {
-      const res = await adminFetch(`/api/admin/stitched-videos/${rawId}`);
-      if (!res.ok) throw new Error('Not found');
-      const video = await res.json();
-      video._rawId = rawId;
-      openStitchEditor(video);
-    } catch (err) {
-      alert('Failed to load stitched video: ' + err.message);
-    }
-  }
   </script>
 </body>
 </html>

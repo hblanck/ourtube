@@ -198,10 +198,13 @@ function getLocationsWithEntries(db) {
 
   return locations.map(location => {
     const entries = byLocation.get(location.id) || [];
-    if (!entries.length && location.path) {
+    if (!entries.length && location.path && !location.path.startsWith('stitch://')) {
       entries.push({ path: location.path, type: 'directory' });
     }
-    return { ...location, entries };
+    const manual_clips = location.stitched_video_id
+      ? getStitchedVideoClips(db, location.stitched_video_id)
+      : null;
+    return { ...location, entries, manual_clips };
   });
 }
 
@@ -380,17 +383,39 @@ router.post('/locations', (req, res) => {
     visibility = 'all',
     scan_interval = 3600,
     stitch_directories = 0,
+    manual_clips,
   } = req.body;
+  const isManualClips = stitch_directories && Array.isArray(manual_clips);
   const normalizedEntries = normalizeEntriesInput(entries, locPath);
-  if (!name || !normalizedEntries.length) {
-    return res.status(400).json({ error: 'name and at least one path entry are required' });
+  if (!name || (!normalizedEntries.length && !isManualClips)) {
+    return res.status(400).json({ error: 'name and at least one path entry (or manual clips for a stitched location) are required' });
   }
 
   const createTx = db.transaction(() => {
-    const firstPath = normalizedEntries[0].path;
+    // Create linked stitched_videos record for manually-curated locations
+    let stitchedVideoId = null;
+    if (isManualClips) {
+      const vidResult = db.prepare(
+        `INSERT INTO stitched_videos (name, visibility) VALUES (?, ?)`
+      ).run(String(name).trim(), normalizeVisibility(visibility));
+      stitchedVideoId = Number(vidResult.lastInsertRowid);
+
+      const insertClip = db.prepare(
+        `INSERT INTO stitched_video_clips (stitched_video_id, media_id, position, enabled) VALUES (?, ?, ?, ?)`
+      );
+      let position = 0;
+      for (const clip of manual_clips) {
+        const mediaId = String(clip.media_id || '').trim();
+        if (!mediaId) continue;
+        const enabled = clip.enabled === false || clip.enabled === 0 ? 0 : 1;
+        insertClip.run(stitchedVideoId, mediaId, position++, enabled);
+      }
+    }
+
+    const firstPath = normalizedEntries.length ? normalizedEntries[0].path : 'stitch://manual';
     const result = db.prepare(
-      'INSERT INTO source_locations (name, path, type, visibility, scan_interval, stitch_directories) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(name, firstPath, type, normalizeVisibility(visibility), scan_interval, stitch_directories ? 1 : 0);
+      'INSERT INTO source_locations (name, path, type, visibility, scan_interval, stitch_directories, stitched_video_id) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).run(name, firstPath, type, normalizeVisibility(visibility), scan_interval, stitch_directories ? 1 : 0, stitchedVideoId);
 
     const locationId = Number(result.lastInsertRowid);
     const insertEntry = db.prepare(
@@ -412,7 +437,7 @@ router.post('/locations', (req, res) => {
 // PUT /api/admin/locations/:id
 router.put('/locations/:id', (req, res) => {
   const db = getDb();
-  const { name, path: locPath, entries, type, visibility, scan_interval, enabled, stitch_directories } = req.body;
+  const { name, path: locPath, entries, type, visibility, scan_interval, enabled, stitch_directories, manual_clips } = req.body;
   const loc = db.prepare('SELECT * FROM source_locations WHERE id = ?').get(req.params.id);
   if (!loc) return res.status(404).json({ error: 'Not found' });
 
@@ -423,6 +448,51 @@ router.put('/locations/:id', (req, res) => {
   }
 
   const updateTx = db.transaction(() => {
+    let stitchedVideoId = loc.stitched_video_id;
+    const stitchOn = stitch_directories !== undefined ? Boolean(stitch_directories) : Boolean(loc.stitch_directories);
+
+    if (stitchOn && Array.isArray(manual_clips)) {
+      if (stitchedVideoId) {
+        // Update existing linked stitched_videos entry
+        db.prepare(
+          `UPDATE stitched_videos SET
+            name = COALESCE(?, name),
+            visibility = COALESCE(?, visibility),
+            updated_at = datetime('now')
+          WHERE id = ?`
+        ).run(
+          name !== undefined ? String(name).trim() : null,
+          visibility !== undefined ? normalizeVisibility(visibility) : null,
+          stitchedVideoId
+        );
+        db.prepare('DELETE FROM stitched_video_clips WHERE stitched_video_id = ?').run(stitchedVideoId);
+      } else {
+        // Create a new stitched_videos entry
+        const vidResult = db.prepare(
+          `INSERT INTO stitched_videos (name, visibility) VALUES (?, ?)`
+        ).run(
+          String(name || loc.name).trim(),
+          normalizeVisibility(visibility !== undefined ? visibility : loc.visibility)
+        );
+        stitchedVideoId = Number(vidResult.lastInsertRowid);
+      }
+
+      const insertClip = db.prepare(
+        `INSERT INTO stitched_video_clips (stitched_video_id, media_id, position, enabled) VALUES (?, ?, ?, ?)`
+      );
+      let position = 0;
+      for (const clip of manual_clips) {
+        const mediaId = String(clip.media_id || '').trim();
+        if (!mediaId) continue;
+        const clipEnabled = clip.enabled === false || clip.enabled === 0 ? 0 : 1;
+        insertClip.run(stitchedVideoId, mediaId, position++, clipEnabled);
+      }
+    } else if (!stitchOn && stitchedVideoId) {
+      // Stitch turned off: remove linked stitched_videos entry (clips cascade via FK)
+      db.prepare('DELETE FROM stitched_videos WHERE id = ?').run(stitchedVideoId);
+      stitchedVideoId = null;
+    }
+
     const nextPath = normalizedEntries?.[0]?.path || loc.path;
     db.prepare(
       `UPDATE source_locations SET
@@ -432,7 +502,8 @@ router.put('/locations/:id', (req, res) => {
         visibility = COALESCE(?, visibility),
         scan_interval = COALESCE(?, scan_interval),
         stitch_directories = COALESCE(?, stitch_directories),
-        enabled = COALESCE(?, enabled)
+        enabled = COALESCE(?, enabled),
+        stitched_video_id = ?
       WHERE id = ?`
     ).run(
       name ?? null,
@@ -442,6 +513,7 @@ router.put('/locations/:id', (req, res) => {
       scan_interval ?? null,
       stitch_directories ?? null,
       enabled ?? null,
+      stitchedVideoId,
       req.params.id
     );
 
@@ -467,7 +539,7 @@ router.delete('/locations/:id', (req, res) => {
   const locationId = parseInt(req.params.id, 10);
   if (!Number.isInteger(locationId)) return res.status(400).json({ error: 'Invalid id' });
 
-  const loc = db.prepare('SELECT id FROM source_locations WHERE id = ?').get(locationId);
+  const loc = db.prepare('SELECT id, stitched_video_id FROM source_locations WHERE id = ?').get(locationId);
   if (!loc) return res.status(404).json({ error: 'Not found' });
 
   const mediaRows = db.prepare(
@@ -485,6 +557,10 @@ router.delete('/locations/:id', (req, res) => {
     db.prepare('DELETE FROM media WHERE source_location_id = ?').run(locationId);
     db.prepare('DELETE FROM skipped_files WHERE source_location_id = ?').run(locationId);
     db.prepare('DELETE FROM source_locations WHERE id = ?').run(locationId);
+    // stitched_video_clips cascade via FK; delete the parent stitched_videos row explicitly
+    if (loc.stitched_video_id) {
+      db.prepare('DELETE FROM stitched_videos WHERE id = ?').run(loc.stitched_video_id);
+    }
   });
 
   deleteTx();
