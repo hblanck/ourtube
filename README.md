@@ -9,7 +9,7 @@ A YouTube-like video and photo manager for NAS/SMB libraries, designed for home 
 - 🎥 **Lightweight video player** (Video.js) with range-based streaming for smooth seeking
 - 🔍 **Metadata extraction** – ffprobe (video duration, codec, resolution), EXIF/GPS (photo location & date)
 - 👤 **Face detection** (optional) using face-api.js – identify people in photos/video thumbnails
-- 🎞 **Stitch video clips** – automatically group video clips from the same directory as a single playable item
+- 🎞 **Stitch video clips** – automatically group video clips from the same directory as a single playable item.  Great for raw dumps of clips from devices like camcorders.
 - 📊 **Engagement metrics** – track views, identify popular items, and monitor library usage in the admin dashboard
 - 🗂 **Admin interface** at `/admin/` – manage source locations, edit metadata, trigger scans, view audit logs
 - 🔐 **Key-based admin mode** – end users stay unauthenticated while admin tasks require unlocking with an admin key
