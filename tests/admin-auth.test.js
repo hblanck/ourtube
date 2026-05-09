@@ -145,6 +145,9 @@ describe('admin-auth', () => {
   test('revokeAdminKey enforces last-key constraint and invalidates matching sessions', () => {
     const keyA = createAdminKeyRecord('A', 'a-secret');
     const keyB = createAdminKeyRecord('B', 'b-secret');
+    getDb().prepare(
+      "UPDATE admin_keys SET revoked_at = datetime('now') WHERE revoked_at IS NULL AND id NOT IN (?, ?)"
+    ).run(keyA, keyB);
 
     const loginRes = createMockRes();
     loginAdmin(loginRes, keyA);
