@@ -225,8 +225,28 @@ function purgeOldSessionLog() {
   }
 }
 
+/**
+ * Purge stale playback progress records past the retention window.
+ */
+function purgeOldPlaybackProgress() {
+  try {
+    const db = getDb();
+    const row = db.prepare("SELECT value FROM settings WHERE key = 'playback_progress_retention_days'").get();
+    const days = Math.max(1, parseInt(row?.value || '180', 10));
+    db.prepare(
+      `DELETE FROM playback_progress WHERE updated_at < datetime('now', ? || ' days')`
+    ).run(`-${days}`);
+  } catch (err) {
+    console.warn('[sessions] purgeOldPlaybackProgress error:', err.message);
+  }
+}
+
 // Sweep expired blocks every 5 minutes
-const _sweepTimer = setInterval(() => { purgeExpiredBlocks(); purgeOldSessionLog(); }, 5 * 60 * 1000);
+const _sweepTimer = setInterval(() => {
+  purgeExpiredBlocks();
+  purgeOldSessionLog();
+  purgeOldPlaybackProgress();
+}, 5 * 60 * 1000);
 if (_sweepTimer.unref) _sweepTimer.unref();
 
 module.exports = {
@@ -238,4 +258,5 @@ module.exports = {
   isClientBlocked,
   purgeExpiredBlocks,
   purgeOldSessionLog,
+  purgeOldPlaybackProgress,
 };

@@ -143,10 +143,22 @@ function initDb() {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS playback_progress (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      playback_session_id TEXT NOT NULL,
+      media_id TEXT NOT NULL,
+      position_seconds REAL NOT NULL DEFAULT 0,
+      duration_seconds REAL,
+      completed INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(playback_session_id, media_id)
+    );
+
     CREATE INDEX IF NOT EXISTS idx_blocked_clients_ip ON blocked_clients(client_ip);
     CREATE INDEX IF NOT EXISTS idx_blocked_clients_unblock_at ON blocked_clients(unblock_at);
     CREATE INDEX IF NOT EXISTS idx_client_session_log_created ON client_session_log(created_at);
     CREATE INDEX IF NOT EXISTS idx_client_session_log_ip ON client_session_log(client_ip);
+    CREATE INDEX IF NOT EXISTS idx_playback_progress_updated_at ON playback_progress(updated_at);
     CREATE INDEX IF NOT EXISTS idx_media_year ON media(year);
     CREATE INDEX IF NOT EXISTS idx_media_location ON media(location);
     CREATE INDEX IF NOT EXISTS idx_media_indexed_at ON media(indexed_at);
@@ -172,6 +184,7 @@ function initDb() {
   insertSetting.run('scan_on_startup', 'false');
   insertSetting.run('photos_enabled', 'true');
   insertSetting.run('session_log_retention_days', '30');
+  insertSetting.run('playback_progress_retention_days', '180');
 
   return db;
 }

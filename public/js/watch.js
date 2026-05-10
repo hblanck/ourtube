@@ -28,9 +28,19 @@
   let hlsStartupRetryCount = 0;
   let transcodeStartupFallbackTimer = null;
   let transcodeStartupFallbackTried = false;
+  let pendingResumeSeconds = null;
+  let hasAppliedResume = false;
+  let lastProgressSavedAt = 0;
+  let lastProgressSavedPosition = 0;
+  let progressSaveInFlight = false;
+  let latestProgressSavePromise = Promise.resolve();
 
   const CLIP_WATERMARK_STORAGE_KEY = 'watch_stitched_clip_watermark';
   const CLIP_WATERMARK_MODE_STORAGE_KEY = 'watch_stitched_clip_watermark_mode';
+  const PROGRESS_SAVE_INTERVAL_MS = 10000;
+  const PROGRESS_MIN_POSITION_DELTA_SECONDS = 3;
+  const PROGRESS_RESUME_MIN_SECONDS = 5;
+  const PROGRESS_RESUME_END_THRESHOLD_SECONDS = 8;
 
   function escHtml(str) {
     return String(str || '')
@@ -58,6 +68,100 @@
   function fmtDate(str) {
     if (!str) return '';
     try { return new Date(str).toLocaleDateString(); } catch { return str; }
+  }
+
+  function getCurrentDurationSeconds() {
+    if (!player) return 0;
+    const fromPlayer = Number(player.duration());
+    if (Number.isFinite(fromPlayer) && fromPlayer > 0) return fromPlayer;
+    const fromExpected = Number(expectedDuration);
+    return Number.isFinite(fromExpected) && fromExpected > 0 ? fromExpected : 0;
+  }
+
+  async function loadPlaybackProgress() {
+    try {
+      const res = await fetch(`/api/playback-progress/${encodeURIComponent(mediaId)}`);
+      if (!res.ok) return 0;
+      const data = await res.json();
+      const seconds = Number(data?.position_seconds);
+      return Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  function shouldResumeAt(positionSeconds, durationSeconds) {
+    if (!Number.isFinite(positionSeconds) || positionSeconds < PROGRESS_RESUME_MIN_SECONDS) return false;
+    if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) return true;
+    return positionSeconds < Math.max(0, durationSeconds - PROGRESS_RESUME_END_THRESHOLD_SECONDS);
+  }
+
+  function applyResumeIfReady() {
+    if (!player || !currentMedia || currentMedia.type !== 'video') return;
+    if (hasAppliedResume || !Number.isFinite(pendingResumeSeconds)) return;
+
+    const duration = getCurrentDurationSeconds();
+    if (!shouldResumeAt(pendingResumeSeconds, duration)) {
+      hasAppliedResume = true;
+      pendingResumeSeconds = null;
+      return;
+    }
+
+    const target = Math.max(0, pendingResumeSeconds);
+    if (stitchedPlayback && compatibilityMode && compatibilityTransport === 'transcode') {
+      seekStitchedPlayback(target);
+    } else {
+      try {
+        player.currentTime(target);
+      } catch {
+        return;
+      }
+    }
+
+    hasAppliedResume = true;
+    pendingResumeSeconds = null;
+  }
+
+  function buildProgressPayload(markCompleted) {
+    if (!player || !currentMedia || currentMedia.type !== 'video') return null;
+
+    const position = Math.max(0, Number(getTimelineCurrentTime()) || 0);
+    const duration = Math.max(0, Number(getCurrentDurationSeconds()) || 0);
+    if (!Number.isFinite(position)) return null;
+
+    const nearEnd = duration > 0 && position >= Math.max(0, duration - PROGRESS_RESUME_END_THRESHOLD_SECONDS);
+    return {
+      position_seconds: position,
+      duration_seconds: duration || null,
+      completed: !!markCompleted || nearEnd,
+    };
+  }
+
+  function savePlaybackProgress({ force = false, markCompleted = false } = {}) {
+    const payload = buildProgressPayload(markCompleted);
+    if (!payload) return Promise.resolve();
+
+    const now = Date.now();
+    const movedEnough = Math.abs(payload.position_seconds - lastProgressSavedPosition) >= PROGRESS_MIN_POSITION_DELTA_SECONDS;
+    const intervalElapsed = (now - lastProgressSavedAt) >= PROGRESS_SAVE_INTERVAL_MS;
+    if (!force && !(movedEnough && intervalElapsed)) return Promise.resolve();
+    if (progressSaveInFlight) return latestProgressSavePromise;
+
+    progressSaveInFlight = true;
+    latestProgressSavePromise = fetch(`/api/playback-progress/${encodeURIComponent(mediaId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      keepalive: force,
+    }).catch(() => {
+      // Ignore transient persistence failures.
+    }).finally(() => {
+      progressSaveInFlight = false;
+      lastProgressSavedAt = Date.now();
+      lastProgressSavedPosition = payload.position_seconds;
+    });
+
+    return latestProgressSavePromise;
   }
 
   function setTimeControlDisplay(el, value) {
@@ -420,7 +524,7 @@
     updateCurrentClipWatermark();
   }
 
-  function initVideo(media) {
+  function initVideo(media, resumeSeconds = 0) {
     const container = document.getElementById('player-container');
     if (!container) return;
     container.style.display = '';
@@ -437,6 +541,10 @@
     stitchedPlayback = !!media.is_virtual;
     stitchedSeekOffset = 0;
     stitchedTranscodeTimeOrigin = null;
+    pendingResumeSeconds = Number.isFinite(Number(resumeSeconds)) ? Number(resumeSeconds) : 0;
+    hasAppliedResume = false;
+    lastProgressSavedAt = 0;
+    lastProgressSavedPosition = 0;
     bindStitchedProgressEvents();
     updateStitchedProgress();
     updateCurrentClipWatermark();
@@ -455,20 +563,33 @@
     });
 
     player.on('loadedmetadata', syncCompatibilityDurationUi);
+    player.on('loadedmetadata', applyResumeIfReady);
     player.on('durationchange', syncCompatibilityDurationUi);
+    player.on('durationchange', applyResumeIfReady);
     player.on('timeupdate', syncCompatibilityDurationUi);
+    player.on('timeupdate', () => {
+      savePlaybackProgress();
+      applyResumeIfReady();
+    });
     player.on('loadeddata', syncCompatibilityDurationUi);
+    player.on('loadeddata', applyResumeIfReady);
     player.on('seeked', () => {
       updateStitchedProgress();
       updateCurrentClipWatermark();
+      savePlaybackProgress({ force: true });
     });
     player.on('pause', () => {
       updateStitchedProgress();
       updateCurrentClipWatermark();
+      savePlaybackProgress({ force: true });
     });
     player.on('play', () => {
       updateStitchedProgress();
       updateCurrentClipWatermark();
+      applyResumeIfReady();
+    });
+    player.on('ended', () => {
+      savePlaybackProgress({ force: true, markCompleted: true });
     });
 
     player.on('error', () => {
@@ -944,7 +1065,8 @@
       renderMeta(media);
 
       if (media.type === 'video') {
-        initVideo(media);
+        const resumeSeconds = await loadPlaybackProgress();
+        initVideo(media, resumeSeconds);
       } else {
         initPhoto(media);
       }
@@ -955,6 +1077,14 @@
       document.getElementById('media-title').textContent = 'Media not found';
     }
   }
+
+  window.addEventListener('pagehide', () => {
+    savePlaybackProgress({ force: true });
+  });
+
+  window.addEventListener('beforeunload', () => {
+    savePlaybackProgress({ force: true });
+  });
 
   document.addEventListener('DOMContentLoaded', init);
 })();

@@ -38,6 +38,7 @@
   const VIDEO_PREVIEW_HOVER_DELAY_MS = 220;
   const VIDEO_PREVIEW_DURATION_MS = 7000;
   const VIDEO_PREVIEW_START_SECONDS = 1.5;
+  const VIDEO_PREVIEW_RESUME_END_THRESHOLD_SECONDS = 8;
 
   // ── Utility ──────────────────────────────────────────────
   function escHtml(str) {
@@ -306,6 +307,23 @@
     return `/stream/${encodedId}`;
   }
 
+  function getPreviewStartSeconds(item) {
+    const resumeSeconds = Number(item.watch_position_seconds);
+    const durationSeconds = Number(item.duration);
+
+    if (!Number.isFinite(resumeSeconds) || resumeSeconds <= 0) {
+      return VIDEO_PREVIEW_START_SECONDS;
+    }
+
+    if (Number.isFinite(durationSeconds) && durationSeconds > 0) {
+      const maxResumePoint = Math.max(0, durationSeconds - VIDEO_PREVIEW_RESUME_END_THRESHOLD_SECONDS);
+      if (resumeSeconds >= maxResumePoint) return VIDEO_PREVIEW_START_SECONDS;
+      return Math.max(0, Math.min(resumeSeconds, Math.max(0, durationSeconds - 0.25)));
+    }
+
+    return Math.max(0, resumeSeconds);
+  }
+
   function ensureCardPreviewVideo(card) {
     if (!card) return null;
     const previewUrl = card.dataset.previewUrl;
@@ -337,8 +355,12 @@
 
     try {
       const setStartOffset = () => {
-        if (video.duration && Number.isFinite(video.duration) && video.duration > VIDEO_PREVIEW_START_SECONDS + 0.3) {
-          try { video.currentTime = VIDEO_PREVIEW_START_SECONDS; } catch { /* ignore */ }
+        const configuredStart = Number(card.dataset.previewStartSeconds);
+        const startSeconds = Number.isFinite(configuredStart) && configuredStart >= 0
+          ? configuredStart
+          : VIDEO_PREVIEW_START_SECONDS;
+        if (video.duration && Number.isFinite(video.duration) && video.duration > startSeconds + 0.3) {
+          try { video.currentTime = startSeconds; } catch { /* ignore */ }
         }
       };
 
@@ -603,7 +625,13 @@
 
     const thumb = `/thumbnail/${item.thumbnail_media_id || item.id}`;
     const isVideo = item.type === 'video';
+    const progressPercentRaw = isVideo ? Number(item.watch_progress_percent) : 0;
+    const progressPercent = Number.isFinite(progressPercentRaw)
+      ? Math.max(0, Math.min(100, Math.round(progressPercentRaw)))
+      : 0;
+    const showProgress = isVideo && progressPercent > 0;
     const previewUrl = isVideo ? getPreviewUrl(item) : '';
+    const previewStartSeconds = isVideo ? getPreviewStartSeconds(item) : VIDEO_PREVIEW_START_SECONDS;
     const name = escHtml(item.friendly_name || item.file_name);
 
     const collectionName = !currentFilters.source_location_id && item.source_location_id
@@ -612,7 +640,10 @@
     const tooltipText = buildCardTooltip(item, isVideo, collectionName);
     card.dataset.tooltip = tooltipText;
     card.setAttribute('aria-label', tooltipText);
-    if (previewUrl) card.dataset.previewUrl = previewUrl;
+    if (previewUrl) {
+      card.dataset.previewUrl = previewUrl;
+      card.dataset.previewStartSeconds = String(previewStartSeconds);
+    }
     const isAdminOnlyVisible = adminModeEnabled && (item.visibility === 'admin' || item.source_visibility === 'admin');
     const leftBadges = [];
     const rightBadges = [];
@@ -629,6 +660,7 @@
         <img class="card-thumb" src="${thumb}" alt="${name}" loading="lazy"
              onerror="this.src='/img/no-thumb.svg'" />
         ${isVideo ? '<video class="card-preview-video" muted playsinline preload="metadata" aria-hidden="true"></video>' : ''}
+           ${showProgress ? `<div class="card-progress-track" aria-hidden="true"><div class="card-progress-fill" style="width:${progressPercent}%"></div></div>` : ''}
         ${isVideo && item.duration ? `<span class="card-duration">${fmtDur(item.duration)}</span>` : ''}
         <span class="card-type-badge">${isVideo ? '🎬' : '📷'}</span>
         ${leftBadges.length ? `<div class="card-left-badges">${leftBadges.join('')}</div>` : ''}

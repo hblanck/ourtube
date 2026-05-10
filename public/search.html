@@ -64,11 +64,18 @@
         card.href = `/watch.html?id=${item.id}`;
         card.className = 'media-card';
         const thumb = `/thumbnail/${item.thumbnail_media_id || item.id}`;
+        const isVideo = item.type === 'video';
+        const progressPercentRaw = isVideo ? Number(item.watch_progress_percent) : 0;
+        const progressPercent = Number.isFinite(progressPercentRaw)
+          ? Math.max(0, Math.min(100, Math.round(progressPercentRaw)))
+          : 0;
+        const showProgress = isVideo && progressPercent > 0;
         card.innerHTML = `
           <div class="card-thumb-wrap">
             <img class="card-thumb" src="${thumb}" alt="${escHtml(item.friendly_name || item.file_name)}" loading="lazy" />
-            ${item.type === 'video' && item.duration ? `<span class="card-duration">${fmtDur(item.duration)}</span>` : ''}
-            <span class="card-type-badge">${item.type === 'video' ? '🎬' : '📷'}</span>
+            ${showProgress ? `<div class="card-progress-track" aria-hidden="true"><div class="card-progress-fill" style="width:${progressPercent}%"></div></div>` : ''}
+            ${isVideo && item.duration ? `<span class="card-duration">${fmtDur(item.duration)}</span>` : ''}
+            <span class="card-type-badge">${isVideo ? '🎬' : '📷'}</span>
             ${item.is_virtual ? `<span class="card-collection-badge card-collection-badge--stitch">Stitched Video</span>` : ''}
             ${item.is_virtual ? `<span class="card-collection-badge">${item.segment_count} clips</span>` : ''}
           </div>
