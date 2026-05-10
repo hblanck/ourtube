@@ -346,6 +346,11 @@
             <label class="form-label">Session Log Retention (days)</label>
             <input type="number" name="session_log_retention_days" class="form-input" min="1" max="365" placeholder="30" />
           </div>
+          <div class="form-group">
+            <label class="form-label">Playback Resume Retention (days)</label>
+            <input type="number" name="playback_progress_retention_days" class="form-input" min="1" max="3650" placeholder="180" />
+            <small class="form-help">Controls how long saved resume positions are kept. Cleanup runs every 5 minutes.</small>
+          </div>
           <button type="submit" class="btn btn-primary">Save Settings</button>
         </form>
         <p id="settings-msg" class="settings-msg">Settings saved!</p>

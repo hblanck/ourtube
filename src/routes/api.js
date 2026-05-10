@@ -30,6 +30,59 @@ function isPhotosEnabled(db) {
   return getSettingValue(db, 'photos_enabled', 'true') !== 'false';
 }
 
+function attachPlaybackProgress(items, req, db) {
+  if (!Array.isArray(items) || !items.length) return items;
+
+  const playbackSessionId = req.playbackSessionId;
+  if (!playbackSessionId) return items;
+
+  const videoItems = items.filter(item => item && item.type === 'video' && item.id);
+  if (!videoItems.length) return items;
+
+  const mediaIds = [...new Set(videoItems.map(item => String(item.id)))];
+  if (!mediaIds.length) return items;
+
+  const placeholders = mediaIds.map(() => '?').join(', ');
+  const rows = db.prepare(
+    `SELECT media_id, position_seconds, duration_seconds, completed
+       FROM playback_progress
+      WHERE playback_session_id = ?
+        AND media_id IN (${placeholders})`
+  ).all(playbackSessionId, ...mediaIds);
+
+  const byId = new Map(rows.map(row => [String(row.media_id), row]));
+
+  for (const item of videoItems) {
+    const progress = byId.get(String(item.id));
+    if (!progress) {
+      item.watch_progress_percent = 0;
+      item.watch_completed = false;
+      item.watch_position_seconds = 0;
+      continue;
+    }
+
+    const positionSeconds = Math.max(0, Number(progress.position_seconds) || 0);
+    const completed = !!progress.completed;
+    const itemDuration = Math.max(0, Number(item.duration) || 0);
+    const fallbackDuration = Math.max(0, Number(progress.duration_seconds) || 0);
+    const durationSeconds = itemDuration || fallbackDuration;
+
+    let percent = 0;
+    if (completed) {
+      percent = 100;
+    } else if (durationSeconds > 0) {
+      percent = Math.round((positionSeconds / durationSeconds) * 100);
+      percent = Math.max(0, Math.min(100, percent));
+    }
+
+    item.watch_progress_percent = percent;
+    item.watch_completed = completed || percent >= 100;
+    item.watch_position_seconds = positionSeconds;
+  }
+
+  return items;
+}
+
 // GET /api/ui-settings
 router.get('/ui-settings', (req, res) => {
   const db = getDb();
@@ -144,6 +197,7 @@ router.get('/media', (req, res) => {
   ).all(...params);
 
   const items = sortMediaItems(aggregateMediaRows(rows), safeSort, safeOrder);
+  attachPlaybackProgress(items, req, db);
 
   res.json({
     total: items.length,
@@ -292,6 +346,63 @@ router.get('/media/:id', (req, res) => {
   res.json(row);
 });
 
+// GET /api/playback-progress/:id
+router.get('/playback-progress/:id', (req, res) => {
+  const db = getDb();
+  const playbackSessionId = req.playbackSessionId;
+  if (!playbackSessionId) return res.status(400).json({ error: 'Missing playback session' });
+
+  const row = db.prepare(
+    `SELECT position_seconds, duration_seconds, completed, updated_at
+       FROM playback_progress
+      WHERE playback_session_id = ? AND media_id = ?`
+  ).get(playbackSessionId, req.params.id);
+
+  if (!row) {
+    return res.json({ media_id: req.params.id, position_seconds: 0, duration_seconds: null, completed: false, updated_at: null });
+  }
+
+  res.json({
+    media_id: req.params.id,
+    position_seconds: Number(row.position_seconds) || 0,
+    duration_seconds: Number.isFinite(Number(row.duration_seconds)) ? Number(row.duration_seconds) : null,
+    completed: !!row.completed,
+    updated_at: row.updated_at || null,
+  });
+});
+
+// PUT /api/playback-progress/:id
+router.put('/playback-progress/:id', (req, res) => {
+  const db = getDb();
+  const playbackSessionId = req.playbackSessionId;
+  if (!playbackSessionId) return res.status(400).json({ error: 'Missing playback session' });
+
+  const rawPosition = Number(req.body?.position_seconds);
+  const rawDuration = Number(req.body?.duration_seconds);
+  const completed = req.body?.completed ? 1 : 0;
+
+  if (!Number.isFinite(rawPosition) || rawPosition < 0) {
+    return res.status(400).json({ error: 'Invalid position_seconds' });
+  }
+
+  const positionSeconds = Math.max(0, rawPosition);
+  const durationSeconds = Number.isFinite(rawDuration) && rawDuration >= 0 ? rawDuration : null;
+
+  db.prepare(
+    `INSERT INTO playback_progress
+      (playback_session_id, media_id, position_seconds, duration_seconds, completed, updated_at)
+     VALUES (?, ?, ?, ?, ?, datetime('now'))
+     ON CONFLICT(playback_session_id, media_id)
+     DO UPDATE SET
+       position_seconds = excluded.position_seconds,
+       duration_seconds = excluded.duration_seconds,
+       completed = excluded.completed,
+       updated_at = datetime('now')`
+  ).run(playbackSessionId, req.params.id, positionSeconds, durationSeconds, completed);
+
+  res.json({ ok: true });
+});
+
 // GET /api/search
 router.get('/search', (req, res) => {
   const db = getDb();
@@ -328,6 +439,7 @@ router.get('/search', (req, res) => {
   items.forEach(item => {
     item.tags = parseTags(item.tags);
   });
+  attachPlaybackProgress(items, req, db);
 
   res.json({ total, page: parseInt(page), limit: pageLimit, items });
 });
