@@ -107,6 +107,7 @@ app.use(morgan('combined'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(ensurePlaybackSession);
+app.use((req, _res, next) => { telemetry.recordHttpRequest({ method: req.method }); next(); });
 
 app.use((req, res, next) => {
   if (req.path !== '/photos' && req.path !== '/photos.html') return next();

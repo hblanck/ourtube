@@ -6,6 +6,7 @@ const { v4: uuidv4 } = require('uuid');
 const { getDb } = require('./db');
 const { getMediaType, extractVideoMetadata, extractPhotoMetadata } = require('./metadata');
 const { getThumbnailPath, generateVideoThumbnail, generatePhotoThumbnail } = require('./thumbnails');
+const telemetry = require('./telemetry');
 
 const VIDEO_EXTENSIONS = new Set([
   'mp4', 'mkv', 'avi', 'mov', 'wmv', 'flv', 'webm',
@@ -384,6 +385,7 @@ async function scanAllLocations() {
   scanInfo(
     `[scanner] Scan complete. Found: ${scanStatus.filesFound}, Indexed: ${scanStatus.filesIndexed}, Skipped: ${scanStatus.filesSkipped}, Errors: ${scanStatus.errors}`
   );
+  telemetry.recordScanComplete({ indexed: String(scanStatus.filesIndexed), found: String(scanStatus.filesFound) });
 }
 
 module.exports = { scanAllLocations, scanLocation, indexFile, getScanStatus, killScan };

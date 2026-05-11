@@ -23,6 +23,8 @@ const { SEMRESATTRS_SERVICE_NAME, SEMRESATTRS_SERVICE_VERSION } = require('@open
 let sdkStarted = false;
 let sdk = null;
 let _meter = null;
+let _engagementGauges = null;
+let _engagementUpdateInterval = null;
 
 // Shared counters available even without an OTLP endpoint.
 const _localCounters = {
@@ -84,10 +86,56 @@ function init() {
     const bytesCounter = _meter.createCounter('ourtube.stream.bytes_sent', { description: 'Total bytes sent via streams' });
     const streamCounter = _meter.createCounter('ourtube.stream.requests.total', { description: 'Total stream requests' });
 
+    // Engagement metrics (gauges updated from database)
+    const totalViewsGauge = _meter.createObservableGauge('ourtube.engagement.total_views', { description: 'Total views across all media' });
+    const totalSessionsGauge = _meter.createObservableGauge('ourtube.engagement.total_sessions', { description: 'Total client sessions' });
+    const uniqueViewersGauge = _meter.createObservableGauge('ourtube.engagement.unique_viewers', { description: 'Unique viewer IPs' });
+    const avgSessionDurationGauge = _meter.createObservableGauge('ourtube.engagement.avg_session_duration_seconds', { description: 'Average session duration in seconds' });
+    const totalBytesSessionsGauge = _meter.createObservableGauge('ourtube.engagement.total_bytes_sessions', { description: 'Total bytes sent across sessions' });
+    const mediaViewedGauge = _meter.createObservableGauge('ourtube.engagement.media_viewed', { description: 'Unique media items viewed' });
+
+    _engagementGauges = {
+      totalViews: totalViewsGauge,
+      totalSessions: totalSessionsGauge,
+      uniqueViewers: uniqueViewersGauge,
+      avgSessionDuration: avgSessionDurationGauge,
+      totalBytesSessions: totalBytesSessionsGauge,
+      mediaViewed: mediaViewedGauge,
+      values: {
+        totalViews: 0,
+        totalSessions: 0,
+        uniqueViewers: 0,
+        avgSessionDuration: 0,
+        totalBytesSessions: 0,
+        mediaViewed: 0,
+      }
+    };
+
+    // Set up observable callbacks for gauges
+    _meter.addBatchObservableCallback((batchObservableCallback) => {
+      batchObservableCallback.observe(totalViewsGauge, _engagementGauges.values.totalViews);
+      batchObservableCallback.observe(totalSessionsGauge, _engagementGauges.values.totalSessions);
+      batchObservableCallback.observe(uniqueViewersGauge, _engagementGauges.values.uniqueViewers);
+      batchObservableCallback.observe(avgSessionDurationGauge, _engagementGauges.values.avgSessionDuration);
+      batchObservableCallback.observe(totalBytesSessionsGauge, _engagementGauges.values.totalBytesSessions);
+      batchObservableCallback.observe(mediaViewedGauge, _engagementGauges.values.mediaViewed);
+    }, [
+      totalViewsGauge,
+      totalSessionsGauge,
+      uniqueViewersGauge,
+      avgSessionDurationGauge,
+      totalBytesSessionsGauge,
+      mediaViewedGauge,
+    ]);
+
     // Attach the meter counters so callers can increment them
     _localCounters._otel = { reqCounter, scanCounter, bytesCounter, streamCounter };
 
+    // Start periodic engagement metrics update
+    startEngagementMetricsUpdate();
+
     process.on('SIGTERM', () => {
+      stopEngagementMetricsUpdate();
       sdk.shutdown().then(() => console.log('[telemetry] OpenTelemetry SDK shut down')).catch(console.error);
     });
   } catch (err) {
@@ -140,6 +188,67 @@ function getStats() {
 function getTracer(name = 'ourtube') {
   if (!enabled) return null;
   return trace.getTracer(name);
+}
+
+/** Update engagement metrics from database (session stats and library views). */
+function updateEngagementMetrics() {
+  if (!_engagementGauges) return;
+
+  try {
+    const { getDb } = require('./db');
+    const db = getDb();
+
+    // Get session stats
+    const sessionStats = db.prepare(
+      `SELECT
+          COUNT(*) as total_sessions,
+          COUNT(DISTINCT client_ip) as unique_ips,
+          COUNT(DISTINCT media_id) as media_viewed,
+          AVG(COALESCE(duration_seconds, 0)) as avg_duration_seconds,
+          SUM(COALESCE(bytes_sent, 0)) as total_bytes_sent
+       FROM client_session_log`
+    ).get();
+
+    // Get total views from media
+    const viewStats = db.prepare(
+      `SELECT SUM(view_count) as total_views FROM media`
+    ).get();
+
+    if (sessionStats) {
+      _engagementGauges.values.totalSessions = sessionStats.total_sessions || 0;
+      _engagementGauges.values.uniqueViewers = sessionStats.unique_ips || 0;
+      _engagementGauges.values.avgSessionDuration = Math.round(sessionStats.avg_duration_seconds) || 0;
+      _engagementGauges.values.totalBytesSessions = sessionStats.total_bytes_sent || 0;
+      _engagementGauges.values.mediaViewed = sessionStats.media_viewed || 0;
+    }
+
+    if (viewStats) {
+      _engagementGauges.values.totalViews = viewStats.total_views || 0;
+    }
+  } catch (err) {
+    console.warn('[telemetry] Failed to update engagement metrics:', err.message);
+  }
+}
+
+/** Start the periodic engagement metrics update interval. */
+function startEngagementMetricsUpdate() {
+  if (!_engagementGauges || _engagementUpdateInterval) return;
+
+  // Update immediately
+  updateEngagementMetrics();
+
+  // Then update every 30 seconds
+  _engagementUpdateInterval = setInterval(() => {
+    updateEngagementMetrics();
+  }, 30_000);
+}
+
+/** Stop the periodic engagement metrics update interval. */
+function stopEngagementMetricsUpdate() {
+  if (_engagementUpdateInterval) {
+    clearInterval(_engagementUpdateInterval);
+    _engagementUpdateInterval = null;
+  }
 }
 
 module.exports = {

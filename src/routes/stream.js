@@ -11,6 +11,7 @@ const { getDb } = require('../db');
 const { upsertSession, touchSession, addBytes, isClientBlocked } = require('../sessions');
 const { getStitchGroupPath, isVirtualMediaId, parseVirtualMediaId, sortSegmentRows } = require('../virtual-media');
 const { canAccessFromRow } = require('../visibility');
+const telemetry = require('../telemetry');
 
 const DATA_DIR = process.env.DATA_DIR || '/data';
 const router = express.Router();
@@ -386,6 +387,7 @@ function getExistingVirtualHlsJob(mediaId) {
 // GET /stream/:id/hls/index.m3u8 - iOS/Safari-friendly compatibility stream for virtual videos
 router.get('/:id/hls/index.m3u8', async (req, res) => {
   if (checkClientBlocked(req, res)) return;
+  telemetry.recordStreamRequest();
   if (!isVirtualMediaId(req.params.id)) {
     return res.status(400).json({ error: 'HLS compatibility is available for virtual videos only' });
   }
@@ -407,6 +409,7 @@ router.get('/:id/hls/index.m3u8', async (req, res) => {
 // GET /stream/:id/hls/:segment - HLS segment files for virtual compatibility stream
 router.get('/:id/hls/:segment', async (req, res) => {
   if (checkClientBlocked(req, res)) return;
+  telemetry.recordStreamRequest();
   if (!isVirtualMediaId(req.params.id)) {
     return res.status(400).json({ error: 'HLS compatibility is available for virtual videos only' });
   }
@@ -426,6 +429,13 @@ router.get('/:id/hls/:segment', async (req, res) => {
     return res.status(404).json({ error: 'Segment not available yet' });
   }
 
+  try {
+    const stat = fs.statSync(segmentPath);
+    telemetry.recordStreamBytes(stat.size || 0);
+  } catch {
+    // Ignore stat race; stream delivery is still attempted.
+  }
+
   res.setHeader('Content-Type', 'video/mp2t');
   res.setHeader('Cache-Control', 'no-store');
   fs.createReadStream(segmentPath).pipe(res);
@@ -442,6 +452,7 @@ router.get('/:id/transcode', (req, res) => {
   console.info(
     `[stream] transcode request id=${req.params.id} virtual=${virtualSegments ? '1' : '0'} start=${startSeconds} range=${req.headers.range || 'none'} ip=${clientIp} ua=${ua}`
   );
+  telemetry.recordStreamRequest();
 
   if (virtualSegments) {
     // Safety guard: virtual transcode requests from stale listing-page preview code
@@ -537,6 +548,7 @@ router.get('/:id/transcode', (req, res) => {
     pass.on('data', chunk => {
       bytesSent += chunk.length;
       addBytes(sessionId, chunk.length);
+      telemetry.recordStreamBytes(chunk.length);
     });
 
     const stopTranscode = () => {
@@ -626,6 +638,7 @@ router.get('/:id/transcode', (req, res) => {
   pass.on('data', chunk => {
     bytesSent += chunk.length;
     addBytes(sessionId, chunk.length);
+    telemetry.recordStreamBytes(chunk.length);
   });
 
   const stopTranscode = () => {
@@ -656,6 +669,7 @@ router.get('/:id/transcode', (req, res) => {
 // GET /stream/:id  - HTTP range-supporting video stream (read-only)
 router.get('/:id', (req, res) => {
   if (checkClientBlocked(req, res)) return;
+  telemetry.recordStreamRequest();
   const db = getDb();
   if (isVirtualMediaId(req.params.id)) {
     return res.status(400).json({ error: 'Virtual videos require compatibility streaming' });
@@ -701,7 +715,10 @@ router.get('/:id', (req, res) => {
     });
 
     const fileStream = fs.createReadStream(filePath, { start, end });
-    fileStream.on('data', chunk => addBytes(sessionId, chunk.length));
+    fileStream.on('data', chunk => {
+      addBytes(sessionId, chunk.length);
+      telemetry.recordStreamBytes(chunk.length);
+    });
     fileStream.pipe(res);
   } else {
     res.writeHead(200, {
@@ -710,7 +727,10 @@ router.get('/:id', (req, res) => {
       'Accept-Ranges': 'bytes'
     });
     const fileStream = fs.createReadStream(filePath);
-    fileStream.on('data', chunk => addBytes(sessionId, chunk.length));
+    fileStream.on('data', chunk => {
+      addBytes(sessionId, chunk.length);
+      telemetry.recordStreamBytes(chunk.length);
+    });
     fileStream.pipe(res);
   }
 

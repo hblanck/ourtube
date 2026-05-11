@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: OurTube Dashboards
+    orgId: 1
+    folder: OurTube
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /etc/grafana/provisioning/dashboards
