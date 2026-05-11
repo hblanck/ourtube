@@ -132,6 +132,12 @@ After unlocking, manage keys in **Admin → Settings → Admin Keys** (create, r
 | `OTEL_SERVICE_NAME` | `ourtube` | Service name reported to the collector |
 | `OTEL_SDK_DISABLED` | `false` | Set to `true` to explicitly disable the SDK even if an endpoint is set |
 | `OTEL_LOG_LEVEL` | _(unset)_ | Set to `debug` to enable verbose OpenTelemetry SDK logging |
+| `OTEL_COLLECTOR_OTLP_GRPC_HOST_PORT` | `4317` | Host port published for OpenTelemetry OTLP gRPC |
+| `OTEL_COLLECTOR_OTLP_HTTP_HOST_PORT` | `4318` | Host port published for OpenTelemetry OTLP HTTP |
+| `OTEL_COLLECTOR_PROMETHEUS_EXPORTER_HOST_PORT` | `9464` | Host port published for OpenTelemetry Prometheus exporter |
+| `JAEGER_UI_HOST_PORT` | `16686` | Host port published for Jaeger UI |
+| `PROMETHEUS_HOST_PORT` | `9090` | Host port published for Prometheus UI |
+| `GRAFANA_HOST_PORT` | `3001` | Host port published for Grafana UI |
 
 ## OpenTelemetry (Observability)
 
