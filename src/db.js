@@ -154,11 +154,33 @@ function initDb() {
       UNIQUE(playback_session_id, media_id)
     );
 
+    CREATE TABLE IF NOT EXISTS video_bookmarks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      media_id TEXT NOT NULL REFERENCES media(id) ON DELETE CASCADE,
+      time_seconds REAL NOT NULL DEFAULT 0,
+      title TEXT,
+      annotation TEXT,
+      tags TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS video_comments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      media_id TEXT NOT NULL REFERENCES media(id) ON DELETE CASCADE,
+      author_name TEXT NOT NULL DEFAULT 'Anonymous',
+      comment_text TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE INDEX IF NOT EXISTS idx_blocked_clients_ip ON blocked_clients(client_ip);
     CREATE INDEX IF NOT EXISTS idx_blocked_clients_unblock_at ON blocked_clients(unblock_at);
     CREATE INDEX IF NOT EXISTS idx_client_session_log_created ON client_session_log(created_at);
     CREATE INDEX IF NOT EXISTS idx_client_session_log_ip ON client_session_log(client_ip);
     CREATE INDEX IF NOT EXISTS idx_playback_progress_updated_at ON playback_progress(updated_at);
+    CREATE INDEX IF NOT EXISTS idx_video_bookmarks_media_id ON video_bookmarks(media_id);
+    CREATE INDEX IF NOT EXISTS idx_video_bookmarks_created_at ON video_bookmarks(created_at);
+    CREATE INDEX IF NOT EXISTS idx_video_comments_media_id ON video_comments(media_id);
+    CREATE INDEX IF NOT EXISTS idx_video_comments_created_at ON video_comments(created_at);
     CREATE INDEX IF NOT EXISTS idx_media_year ON media(year);
     CREATE INDEX IF NOT EXISTS idx_media_location ON media(location);
     CREATE INDEX IF NOT EXISTS idx_media_indexed_at ON media(indexed_at);
@@ -183,6 +205,7 @@ function initDb() {
   insertSetting.run('thumbnail_height', '300');
   insertSetting.run('scan_on_startup', 'false');
   insertSetting.run('photos_enabled', 'true');
+  insertSetting.run('external_base_url', '');
   insertSetting.run('session_log_retention_days', '30');
   insertSetting.run('playback_progress_retention_days', '180');
 

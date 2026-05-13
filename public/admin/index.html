@@ -327,45 +327,54 @@
       <section class="admin-section" id="tab-settings">
         <h2>Settings</h2>
         <form id="settings-form" class="settings-form">
-          <div class="form-group">
-            <label class="form-label">Face Detection</label>
-            <select name="face_detection_enabled" class="form-select">
-              <option value="false">Disabled</option>
-              <option value="true">Enabled</option>
-            </select>
+          <div class="settings-grid">
+            <div class="form-group">
+              <label class="form-label">Face Detection</label>
+              <select name="face_detection_enabled" class="form-select">
+                <option value="false">Disabled</option>
+                <option value="true">Enabled</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Thumbnail Width (px)</label>
+              <input type="number" name="thumbnail_width" class="form-input" min="100" max="1920" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Thumbnail Height (px)</label>
+              <input type="number" name="thumbnail_height" class="form-input" min="100" max="1080" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Scan on Startup</label>
+              <select name="scan_on_startup" class="form-select">
+                <option value="false">No</option>
+                <option value="true">Yes</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Show Photos in UI</label>
+              <select name="photos_enabled" class="form-select">
+                <option value="true">Enabled</option>
+                <option value="false">Hidden</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Session Log Retention (days)</label>
+              <input type="number" name="session_log_retention_days" class="form-input" min="1" max="365" placeholder="30" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Playback Resume Retention (days)</label>
+              <input type="number" name="playback_progress_retention_days" class="form-input" min="1" max="3650" placeholder="180" />
+              <small class="form-help">Controls how long saved resume positions are kept. Cleanup runs every 5 minutes.</small>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="external-base-url-input">External Base URL</label>
+              <input id="external-base-url-input" type="url" name="external_base_url" class="form-input" placeholder="https://example.com" />
+              <small class="form-help">Used when users copy video and bookmark share links.</small>
+            </div>
           </div>
-          <div class="form-group">
-            <label class="form-label">Thumbnail Width (px)</label>
-            <input type="number" name="thumbnail_width" class="form-input" min="100" max="1920" />
+          <div class="settings-actions">
+            <button type="submit" class="btn btn-primary">Save Settings</button>
           </div>
-          <div class="form-group">
-            <label class="form-label">Thumbnail Height (px)</label>
-            <input type="number" name="thumbnail_height" class="form-input" min="100" max="1080" />
-          </div>
-          <div class="form-group">
-            <label class="form-label">Scan on Startup</label>
-            <select name="scan_on_startup" class="form-select">
-              <option value="false">No</option>
-              <option value="true">Yes</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Show Photos in UI</label>
-            <select name="photos_enabled" class="form-select">
-              <option value="true">Enabled</option>
-              <option value="false">Hidden</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Session Log Retention (days)</label>
-            <input type="number" name="session_log_retention_days" class="form-input" min="1" max="365" placeholder="30" />
-          </div>
-          <div class="form-group">
-            <label class="form-label">Playback Resume Retention (days)</label>
-            <input type="number" name="playback_progress_retention_days" class="form-input" min="1" max="3650" placeholder="180" />
-            <small class="form-help">Controls how long saved resume positions are kept. Cleanup runs every 5 minutes.</small>
-          </div>
-          <button type="submit" class="btn btn-primary">Save Settings</button>
         </form>
         <p id="settings-msg" class="settings-msg">Settings saved!</p>
 

@@ -72,6 +72,10 @@
         </div>
         <div class="media-meta" id="media-meta"></div>
         <div class="media-desc" id="media-desc"></div>
+        <div id="watch-actions" class="watch-actions" style="display:none">
+          <button id="share-video-btn" class="btn btn-secondary btn-small" type="button">🔗 Share Video</button>
+          <span id="share-video-msg" class="watch-action-msg" role="status" aria-live="polite"></span>
+        </div>
 
         <div id="stitched-segments" class="stitched-segments" style="display:none">
           <button
@@ -104,6 +108,30 @@
         <div id="tags-container" class="tags-container"></div>
         <div id="faces-container" class="faces-container"></div>
 
+        <section id="bookmarks-section" class="watch-social-section" style="display:none">
+          <h3 class="watch-social-title">📌 Bookmarks</h3>
+          <form id="bookmark-form" class="watch-social-form">
+            <div class="watch-social-form-row">
+              <input type="text" name="title" class="form-input" maxlength="120" placeholder="Bookmark title (optional)" />
+              <input type="text" name="tags" class="form-input" maxlength="240" placeholder="Tags (comma-separated)" />
+            </div>
+            <textarea name="annotation" class="form-textarea" maxlength="1000" placeholder="Annotation"></textarea>
+            <button type="submit" class="btn btn-primary btn-small">Save Bookmark at Current Time</button>
+          </form>
+          <div id="bookmarks-list" class="watch-social-list"></div>
+        </section>
+
+        <section id="comments-section" class="watch-social-section" style="display:none">
+          <h3 class="watch-social-title">💬 Comments</h3>
+          <form id="comment-form" class="watch-social-form">
+            <div class="watch-social-form-row">
+              <input type="text" name="author_name" class="form-input" maxlength="60" placeholder="Your name (optional)" />
+            </div>
+            <textarea name="comment_text" class="form-textarea" maxlength="2000" placeholder="Add a comment" required></textarea>
+            <button type="submit" class="btn btn-primary btn-small">Post Comment</button>
+          </form>
+          <div id="comments-list" class="watch-social-list"></div>
+        </section>
       </div>
     </div>
 

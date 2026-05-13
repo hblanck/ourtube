@@ -31,6 +31,53 @@ function isPhotosEnabled(db) {
   return getSettingValue(db, 'photos_enabled', 'true') !== 'false';
 }
 
+function normalizeExternalBaseUrl(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return '';
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return '';
+  const normalizedPath = parsed.pathname.replace(/\/+$/g, '');
+  return `${parsed.origin}${normalizedPath}${parsed.search}${parsed.hash}`;
+}
+
+function normalizeBookmarkTags(rawTags) {
+  const tags = Array.isArray(rawTags) ? rawTags : [];
+  const seen = new Set();
+  const normalized = [];
+
+  for (const tag of tags) {
+    const safe = String(tag || '').trim().slice(0, 40);
+    if (!safe) continue;
+    const key = safe.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    normalized.push(safe);
+    if (normalized.length >= 20) break;
+  }
+
+  return normalized;
+}
+
+function getAccessibleVideoForSocialFeatures(db, mediaId, req) {
+  const row = db.prepare(
+    `SELECT m.id, m.type, m.visibility AS media_visibility, sl.visibility AS source_visibility
+       FROM media m
+       LEFT JOIN source_locations sl ON sl.id = m.source_location_id
+      WHERE m.id = ?`
+  ).get(mediaId);
+
+  if (!row) return null;
+  if (row.type !== 'video') return null;
+  if (!canAccessFromRow(row, req)) return null;
+  return row;
+}
+
 function attachPlaybackProgress(items, req, db) {
   if (!Array.isArray(items) || !items.length) return items;
 
@@ -99,7 +146,8 @@ function milestonesForPercent(percent, completed) {
 router.get('/ui-settings', (req, res) => {
   const db = getDb();
   res.json({
-    photos_enabled: isPhotosEnabled(db)
+    photos_enabled: isPhotosEnabled(db),
+    external_base_url: normalizeExternalBaseUrl(getSettingValue(db, 'external_base_url', ''))
   });
 });
 
@@ -356,6 +404,135 @@ router.get('/media/:id', (req, res) => {
 
   row.faces = faces;
   res.json(row);
+});
+
+// GET /api/media/:id/bookmarks
+router.get('/media/:id/bookmarks', (req, res) => {
+  const db = getDb();
+  if (!getAccessibleVideoForSocialFeatures(db, req.params.id, req)) {
+    return res.status(404).json({ error: 'Not found' });
+  }
+
+  const rows = db.prepare(
+    `SELECT id, media_id, time_seconds, title, annotation, tags, created_at
+       FROM video_bookmarks
+      WHERE media_id = ?
+      ORDER BY time_seconds ASC, id ASC`
+  ).all(req.params.id);
+
+  const items = rows.map(row => {
+    let tags = [];
+    try {
+      const parsed = JSON.parse(row.tags || '[]');
+      if (Array.isArray(parsed)) tags = parsed.map(String).filter(Boolean);
+    } catch {
+      tags = [];
+    }
+
+    return {
+      id: row.id,
+      media_id: row.media_id,
+      time_seconds: Math.max(0, Number(row.time_seconds) || 0),
+      title: row.title || '',
+      annotation: row.annotation || '',
+      tags,
+      created_at: row.created_at,
+    };
+  });
+
+  res.json({ items });
+});
+
+// POST /api/media/:id/bookmarks
+router.post('/media/:id/bookmarks', (req, res) => {
+  const db = getDb();
+  if (!getAccessibleVideoForSocialFeatures(db, req.params.id, req)) {
+    return res.status(404).json({ error: 'Not found' });
+  }
+
+  const timeSeconds = Number(req.body?.time_seconds);
+  if (!Number.isFinite(timeSeconds) || timeSeconds < 0) {
+    return res.status(400).json({ error: 'Invalid time_seconds' });
+  }
+
+  const title = String(req.body?.title || '').trim().slice(0, 120);
+  const annotation = String(req.body?.annotation || '').trim().slice(0, 1000);
+  const tags = normalizeBookmarkTags(req.body?.tags);
+
+  if (!title && !annotation && !tags.length) {
+    return res.status(400).json({ error: 'Provide a title, annotation, or at least one tag' });
+  }
+
+  const result = db.prepare(
+    `INSERT INTO video_bookmarks (media_id, time_seconds, title, annotation, tags)
+     VALUES (?, ?, ?, ?, ?)`
+  ).run(
+    req.params.id,
+    Math.max(0, timeSeconds),
+    title,
+    annotation,
+    JSON.stringify(tags)
+  );
+
+  const row = db.prepare(
+    `SELECT id, media_id, time_seconds, title, annotation, tags, created_at
+       FROM video_bookmarks
+      WHERE id = ?`
+  ).get(result.lastInsertRowid);
+
+  res.status(201).json({
+    id: row.id,
+    media_id: row.media_id,
+    time_seconds: Math.max(0, Number(row.time_seconds) || 0),
+    title: row.title || '',
+    annotation: row.annotation || '',
+    tags,
+    created_at: row.created_at,
+  });
+});
+
+// GET /api/media/:id/comments
+router.get('/media/:id/comments', (req, res) => {
+  const db = getDb();
+  if (!getAccessibleVideoForSocialFeatures(db, req.params.id, req)) {
+    return res.status(404).json({ error: 'Not found' });
+  }
+
+  const items = db.prepare(
+    `SELECT id, media_id, author_name, comment_text, created_at
+       FROM video_comments
+      WHERE media_id = ?
+      ORDER BY created_at DESC, id DESC`
+  ).all(req.params.id);
+
+  res.json({ items });
+});
+
+// POST /api/media/:id/comments
+router.post('/media/:id/comments', (req, res) => {
+  const db = getDb();
+  if (!getAccessibleVideoForSocialFeatures(db, req.params.id, req)) {
+    return res.status(404).json({ error: 'Not found' });
+  }
+
+  const authorName = String(req.body?.author_name || '').trim().slice(0, 60) || 'Anonymous';
+  const commentText = String(req.body?.comment_text || '').trim().slice(0, 2000);
+  if (!commentText) {
+    return res.status(400).json({ error: 'comment_text is required' });
+  }
+
+  const result = db.prepare(
+    `INSERT INTO video_comments (media_id, author_name, comment_text)
+     VALUES (?, ?, ?)`
+  ).run(req.params.id, authorName, commentText);
+
+  const row = db.prepare(
+    `SELECT id, media_id, author_name, comment_text, created_at
+       FROM video_comments
+      WHERE id = ?`
+  ).get(result.lastInsertRowid);
+
+  res.status(201).json(row);
 });
 
 // GET /api/playback-progress/:id
