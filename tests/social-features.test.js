@@ -7,10 +7,12 @@ const express = require('express');
 const request = require('supertest');
 
 const { initDb, getDb } = require('../src/db');
+const { buildVirtualMediaId } = require('../src/virtual-media');
 const apiRouter = require('../src/routes/api');
 
 let app;
 let sourceLocationId;
+let virtualMediaId;
 
 beforeAll(() => {
   initDb();
@@ -26,6 +28,21 @@ beforeAll(() => {
     `INSERT INTO media (id, type, source_location_id, file_path, file_name, visibility, tags)
      VALUES ('video-social-1', 'video', ?, '/tmp/social/video.mp4', 'video.mp4', 'all', '[]')`
   ).run(sourceLocationId);
+
+  db.prepare(`UPDATE source_locations SET stitch_directories = 1 WHERE id = ?`).run(sourceLocationId);
+  db.prepare(
+    `INSERT INTO source_location_entries (source_location_id, entry_path, entry_type)
+     VALUES (?, '/tmp/social/groupA', 'directory')`
+  ).run(sourceLocationId);
+  db.prepare(
+    `INSERT INTO media (id, type, source_location_id, file_path, file_name, visibility, tags)
+     VALUES ('video-social-v1', 'video', ?, '/tmp/social/groupA/clip1.mp4', 'clip1.mp4', 'all', '[]')`
+  ).run(sourceLocationId);
+  db.prepare(
+    `INSERT INTO media (id, type, source_location_id, file_path, file_name, visibility, tags)
+     VALUES ('video-social-v2', 'video', ?, '/tmp/social/groupA/clip2.mp4', 'clip2.mp4', 'all', '[]')`
+  ).run(sourceLocationId);
+  virtualMediaId = buildVirtualMediaId(sourceLocationId, '/tmp/social/groupA');
 
   app = express();
   app.use(express.json());
@@ -117,6 +134,44 @@ describe('social API features', () => {
     expect(res.status).toBe(400);
     expect(res.body).toEqual(expect.objectContaining({
       error: expect.any(String),
+    }));
+  });
+
+  test('POST/GET bookmarks and comments on a virtual video', async () => {
+    const createBookmark = await request(app)
+      .post(`/api/media/${encodeURIComponent(virtualMediaId)}/bookmarks`)
+      .send({
+        time_seconds: 12,
+        title: 'Virtual marker',
+        annotation: 'Works on stitched videos too',
+        tags: ['stitched'],
+      });
+    expect(createBookmark.status).toBe(201);
+    expect(createBookmark.body.media_id).toBe(virtualMediaId);
+
+    const listBookmarks = await request(app).get(`/api/media/${encodeURIComponent(virtualMediaId)}/bookmarks`);
+    expect(listBookmarks.status).toBe(200);
+    expect(Array.isArray(listBookmarks.body.items)).toBe(true);
+    expect(listBookmarks.body.items[0]).toEqual(expect.objectContaining({
+      media_id: virtualMediaId,
+      title: 'Virtual marker',
+    }));
+
+    const createComment = await request(app)
+      .post(`/api/media/${encodeURIComponent(virtualMediaId)}/comments`)
+      .send({ author_name: 'Viewer', comment_text: 'Virtual comment works' });
+    expect(createComment.status).toBe(201);
+    expect(createComment.body).toEqual(expect.objectContaining({
+      media_id: virtualMediaId,
+      comment_text: 'Virtual comment works',
+    }));
+
+    const listComments = await request(app).get(`/api/media/${encodeURIComponent(virtualMediaId)}/comments`);
+    expect(listComments.status).toBe(200);
+    expect(Array.isArray(listComments.body.items)).toBe(true);
+    expect(listComments.body.items[0]).toEqual(expect.objectContaining({
+      media_id: virtualMediaId,
+      comment_text: 'Virtual comment works',
     }));
   });
 });

@@ -65,6 +65,46 @@ function normalizeBookmarkTags(rawTags) {
 }
 
 function getAccessibleVideoForSocialFeatures(db, mediaId, req) {
+  const virtualRef = parseVirtualMediaId(mediaId);
+  if (virtualRef) {
+    const rows = db.prepare(
+      `SELECT m.id, m.type, m.file_path, m.file_name, m.visibility AS media_visibility, sl.visibility AS source_visibility,
+              m.source_location_id, sl.path AS source_location_path, sl.stitch_directories,
+              (
+                SELECT sle.entry_path
+                FROM source_location_entries sle
+                WHERE sle.source_location_id = m.source_location_id
+                  AND (
+                    (sle.entry_type = 'file' AND sle.entry_path = m.file_path)
+                    OR (sle.entry_type = 'directory' AND (m.file_path = sle.entry_path OR m.file_path LIKE sle.entry_path || '/%'))
+                  )
+                ORDER BY LENGTH(sle.entry_path) DESC
+                LIMIT 1
+              ) AS source_entry_path,
+              (
+                SELECT sle.entry_type
+                FROM source_location_entries sle
+                WHERE sle.source_location_id = m.source_location_id
+                  AND (
+                    (sle.entry_type = 'file' AND sle.entry_path = m.file_path)
+                    OR (sle.entry_type = 'directory' AND (m.file_path = sle.entry_path OR m.file_path LIKE sle.entry_path || '/%'))
+                  )
+                ORDER BY LENGTH(sle.entry_path) DESC
+                LIMIT 1
+              ) AS source_entry_type
+         FROM media m
+         LEFT JOIN source_locations sl ON sl.id = m.source_location_id
+        WHERE m.source_location_id = ? AND m.type = 'video'`
+    ).all(virtualRef.sourceLocationId);
+
+    const segmentRows = rows
+      .filter(row => canAccessFromRow(row, req))
+      .filter(row => getStitchGroupPath(row) === virtualRef.groupPath);
+    if (!segmentRows.length) return null;
+
+    return { id: mediaId, type: 'video', isVirtual: true };
+  }
+
   const row = db.prepare(
     `SELECT m.id, m.type, m.visibility AS media_visibility, sl.visibility AS source_visibility
        FROM media m
@@ -409,16 +449,24 @@ router.get('/media/:id', (req, res) => {
 // GET /api/media/:id/bookmarks
 router.get('/media/:id/bookmarks', (req, res) => {
   const db = getDb();
-  if (!getAccessibleVideoForSocialFeatures(db, req.params.id, req)) {
+  const mediaRef = getAccessibleVideoForSocialFeatures(db, req.params.id, req);
+  if (!mediaRef) {
     return res.status(404).json({ error: 'Not found' });
   }
 
-  const rows = db.prepare(
-    `SELECT id, media_id, time_seconds, title, annotation, tags, created_at
-       FROM video_bookmarks
-      WHERE media_id = ?
-      ORDER BY time_seconds ASC, id ASC`
-  ).all(req.params.id);
+  const rows = mediaRef.isVirtual
+    ? db.prepare(
+      `SELECT id, media_id, time_seconds, title, annotation, tags, created_at
+         FROM virtual_video_bookmarks
+        WHERE media_id = ?
+        ORDER BY time_seconds ASC, id ASC`
+    ).all(req.params.id)
+    : db.prepare(
+      `SELECT id, media_id, time_seconds, title, annotation, tags, created_at
+         FROM video_bookmarks
+        WHERE media_id = ?
+        ORDER BY time_seconds ASC, id ASC`
+    ).all(req.params.id);
 
   const items = rows.map(row => {
     let tags = [];
@@ -446,7 +494,8 @@ router.get('/media/:id/bookmarks', (req, res) => {
 // POST /api/media/:id/bookmarks
 router.post('/media/:id/bookmarks', (req, res) => {
   const db = getDb();
-  if (!getAccessibleVideoForSocialFeatures(db, req.params.id, req)) {
+  const mediaRef = getAccessibleVideoForSocialFeatures(db, req.params.id, req);
+  if (!mediaRef) {
     return res.status(404).json({ error: 'Not found' });
   }
 
@@ -463,22 +512,39 @@ router.post('/media/:id/bookmarks', (req, res) => {
     return res.status(400).json({ error: 'Provide a title, annotation, or at least one tag' });
   }
 
-  const result = db.prepare(
-    `INSERT INTO video_bookmarks (media_id, time_seconds, title, annotation, tags)
-     VALUES (?, ?, ?, ?, ?)`
-  ).run(
-    req.params.id,
-    Math.max(0, timeSeconds),
-    title,
-    annotation,
-    JSON.stringify(tags)
-  );
+  const result = mediaRef.isVirtual
+    ? db.prepare(
+      `INSERT INTO virtual_video_bookmarks (media_id, time_seconds, title, annotation, tags)
+       VALUES (?, ?, ?, ?, ?)`
+    ).run(
+      req.params.id,
+      Math.max(0, timeSeconds),
+      title,
+      annotation,
+      JSON.stringify(tags)
+    )
+    : db.prepare(
+      `INSERT INTO video_bookmarks (media_id, time_seconds, title, annotation, tags)
+       VALUES (?, ?, ?, ?, ?)`
+    ).run(
+      req.params.id,
+      Math.max(0, timeSeconds),
+      title,
+      annotation,
+      JSON.stringify(tags)
+    );
 
-  const row = db.prepare(
-    `SELECT id, media_id, time_seconds, title, annotation, tags, created_at
-       FROM video_bookmarks
-      WHERE id = ?`
-  ).get(result.lastInsertRowid);
+  const row = mediaRef.isVirtual
+    ? db.prepare(
+      `SELECT id, media_id, time_seconds, title, annotation, tags, created_at
+         FROM virtual_video_bookmarks
+        WHERE id = ?`
+    ).get(result.lastInsertRowid)
+    : db.prepare(
+      `SELECT id, media_id, time_seconds, title, annotation, tags, created_at
+         FROM video_bookmarks
+        WHERE id = ?`
+    ).get(result.lastInsertRowid);
 
   res.status(201).json({
     id: row.id,
@@ -494,16 +560,24 @@ router.post('/media/:id/bookmarks', (req, res) => {
 // GET /api/media/:id/comments
 router.get('/media/:id/comments', (req, res) => {
   const db = getDb();
-  if (!getAccessibleVideoForSocialFeatures(db, req.params.id, req)) {
+  const mediaRef = getAccessibleVideoForSocialFeatures(db, req.params.id, req);
+  if (!mediaRef) {
     return res.status(404).json({ error: 'Not found' });
   }
 
-  const items = db.prepare(
-    `SELECT id, media_id, author_name, comment_text, created_at
-       FROM video_comments
-      WHERE media_id = ?
-      ORDER BY created_at DESC, id DESC`
-  ).all(req.params.id);
+  const items = mediaRef.isVirtual
+    ? db.prepare(
+      `SELECT id, media_id, author_name, comment_text, created_at
+         FROM virtual_video_comments
+        WHERE media_id = ?
+        ORDER BY created_at DESC, id DESC`
+    ).all(req.params.id)
+    : db.prepare(
+      `SELECT id, media_id, author_name, comment_text, created_at
+         FROM video_comments
+        WHERE media_id = ?
+        ORDER BY created_at DESC, id DESC`
+    ).all(req.params.id);
 
   res.json({ items });
 });
@@ -511,7 +585,8 @@ router.get('/media/:id/comments', (req, res) => {
 // POST /api/media/:id/comments
 router.post('/media/:id/comments', (req, res) => {
   const db = getDb();
-  if (!getAccessibleVideoForSocialFeatures(db, req.params.id, req)) {
+  const mediaRef = getAccessibleVideoForSocialFeatures(db, req.params.id, req);
+  if (!mediaRef) {
     return res.status(404).json({ error: 'Not found' });
   }
 
@@ -521,16 +596,27 @@ router.post('/media/:id/comments', (req, res) => {
     return res.status(400).json({ error: 'comment_text is required' });
   }
 
-  const result = db.prepare(
-    `INSERT INTO video_comments (media_id, author_name, comment_text)
-     VALUES (?, ?, ?)`
-  ).run(req.params.id, authorName, commentText);
+  const result = mediaRef.isVirtual
+    ? db.prepare(
+      `INSERT INTO virtual_video_comments (media_id, author_name, comment_text)
+       VALUES (?, ?, ?)`
+    ).run(req.params.id, authorName, commentText)
+    : db.prepare(
+      `INSERT INTO video_comments (media_id, author_name, comment_text)
+       VALUES (?, ?, ?)`
+    ).run(req.params.id, authorName, commentText);
 
-  const row = db.prepare(
-    `SELECT id, media_id, author_name, comment_text, created_at
-       FROM video_comments
-      WHERE id = ?`
-  ).get(result.lastInsertRowid);
+  const row = mediaRef.isVirtual
+    ? db.prepare(
+      `SELECT id, media_id, author_name, comment_text, created_at
+         FROM virtual_video_comments
+        WHERE id = ?`
+    ).get(result.lastInsertRowid)
+    : db.prepare(
+      `SELECT id, media_id, author_name, comment_text, created_at
+         FROM video_comments
+        WHERE id = ?`
+    ).get(result.lastInsertRowid);
 
   res.status(201).json(row);
 });
