@@ -28,6 +28,7 @@
       <a class="admin-nav-link" data-tab="infrastructure">🖥 Infrastructure</a>
       <a class="admin-nav-link" data-tab="locations">📁 Source Locations</a>
       <a class="admin-nav-link" data-tab="library">🗂 Media Library</a>
+      <a class="admin-nav-link" data-tab="bookmarks">📌 Bookmarks</a>
       <a class="admin-nav-link" data-tab="session-log">📋 Session Log</a>
       <a class="admin-nav-link" data-tab="settings">⚙️ Settings</a>
     </nav>
@@ -276,6 +277,35 @@
           <tbody id="skipped-tbody"></tbody>
         </table>
         <div id="skipped-pagination" class="pagination-row"></div>
+      </section>
+
+      <section class="admin-section" id="tab-bookmarks">
+        <h2>Bookmarks</h2>
+        <div class="admin-filters-row">
+          <input type="search" id="bookmarks-search" class="form-input form-input-max-300" placeholder="Search title, annotation, media…" />
+          <select id="bookmarks-scope" class="form-select form-select-max-170">
+            <option value="">All</option>
+            <option value="regular">Regular media</option>
+            <option value="virtual">Stitched virtual media</option>
+          </select>
+        </div>
+        <table class="data-table" id="bookmarks-table">
+          <thead>
+            <tr>
+              <th>Thumbnail</th>
+              <th>Media</th>
+              <th>Time</th>
+              <th>Details</th>
+              <th>Created</th>
+              <th>Type</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="bookmarks-tbody">
+            <tr><td colspan="7" class="table-empty-cell">Loading…</td></tr>
+          </tbody>
+        </table>
+        <div id="bookmarks-pagination" class="pagination-row"></div>
       </section>
 
       <!-- Session Log -->
@@ -835,6 +865,10 @@
     if (tab === 'library') {
       libPage = 1;
       loadLibrarySourceLocationFilter().then(() => loadLibrary());
+    }
+    if (tab === 'bookmarks') {
+      bookmarksPage = 1;
+      loadAdminBookmarks();
     }
     if (tab === 'session-log') { slPage = 1; loadSessionLog(); }
     if (tab === 'settings') loadSettings();
@@ -1515,6 +1549,9 @@
   let skippedPage = 1;
   let skippedTotal = 0;
   const skippedLimit = 20;
+  let bookmarksPage = 1;
+  let bookmarksTotal = 0;
+  const bookmarksLimit = 20;
 
   function updateLibrarySelectionUi() {
     const countEl = document.getElementById('library-selected-count');
@@ -1761,6 +1798,91 @@
     loadSkippedFiles();
   }
 
+  async function loadAdminBookmarks() {
+    const tbody = document.getElementById('bookmarks-tbody');
+    if (!tbody) return;
+
+    tbody.innerHTML = '<tr><td colspan="7" class="table-empty-cell">Loading…</td></tr>';
+    const q = document.getElementById('bookmarks-search')?.value || '';
+    const scope = document.getElementById('bookmarks-scope')?.value || '';
+    const params = new URLSearchParams({ page: bookmarksPage, limit: bookmarksLimit });
+    if (q) params.set('q', q);
+    if (scope) params.set('scope', scope);
+
+    const res = await adminFetch('/api/admin/bookmarks?' + params.toString());
+    const data = await res.json();
+    if (!res.ok) {
+      tbody.innerHTML = `<tr><td colspan="7" class="table-empty-cell">${escHtml(data.error || 'Failed to load bookmarks.')}</td></tr>`;
+      document.getElementById('bookmarks-pagination').innerHTML = '';
+      return;
+    }
+
+    bookmarksTotal = Number(data.total) || 0;
+    if (!Array.isArray(data.items) || !data.items.length) {
+      tbody.innerHTML = '<tr><td colspan="7" class="table-empty-cell">No bookmarks found.</td></tr>';
+      document.getElementById('bookmarks-pagination').innerHTML = '';
+      return;
+    }
+
+    tbody.innerHTML = data.items.map(item => {
+      const thumbnail = item.thumbnail_url
+        ? `<img class="library-media-thumb" src="${escHtml(item.thumbnail_url)}" alt="" loading="lazy" onerror="this.onerror=null;this.src='/img/no-thumb.svg';" />`
+        : '<img class="library-media-thumb" src="/img/no-thumb.svg" alt="" loading="lazy" />';
+      const watchUrl = `/watch.html?id=${encodeURIComponent(item.media_id)}`;
+      const details = [
+        item.title ? `<div><strong>${escHtml(item.title)}</strong></div>` : '',
+        item.annotation ? `<div class="cell-xs cell-secondary">${escHtml(item.annotation)}</div>` : '',
+        Array.isArray(item.tags) && item.tags.length
+          ? `<div class="cell-xs cell-secondary">${item.tags.map(tag => `#${escHtml(tag)}`).join(' ')}</div>`
+          : '',
+      ].filter(Boolean).join('');
+
+      return `
+        <tr>
+          <td>${thumbnail}</td>
+          <td class="cell-max-280">
+            <div><strong>${escHtml(item.media_name || item.media_id)}</strong></div>
+            <div class="cell-xs cell-secondary cell-ellipsis"><code>${escHtml(item.media_id)}</code></div>
+            ${item.source_location_name ? `<div class="cell-xs cell-secondary">${escHtml(item.source_location_name)}</div>` : ''}
+          </td>
+          <td>${fmtDur(item.time_seconds)}</td>
+          <td class="cell-max-280">${details || '<span class="cell-secondary">—</span>'}</td>
+          <td class="cell-xs">${fmtDate(item.created_at)}</td>
+          <td class="cell-xs">${item.scope === 'virtual' ? 'Virtual' : 'Regular'}</td>
+          <td>
+            <a class="btn btn-small" href="${watchUrl}" target="_blank">Open</a>
+            <button class="btn btn-small btn-danger-text" type="button" onclick="deleteAdminBookmark('${escHtml(item.scope)}', ${Number(item.id)})">Delete</button>
+          </td>
+        </tr>`;
+    }).join('');
+
+    const totalPages = Math.max(1, Math.ceil(bookmarksTotal / bookmarksLimit));
+    document.getElementById('bookmarks-pagination').innerHTML = `
+      <button class="btn btn-secondary btn-small" onclick="bookmarksGo(${bookmarksPage - 1})" ${bookmarksPage <= 1 ? 'disabled' : ''}>← Prev</button>
+      <span>Page ${bookmarksPage} of ${totalPages} (${bookmarksTotal} bookmarks)</span>
+      <button class="btn btn-secondary btn-small" onclick="bookmarksGo(${bookmarksPage + 1})" ${bookmarksPage >= totalPages ? 'disabled' : ''}>Next →</button>`;
+  }
+
+  function bookmarksGo(p) {
+    bookmarksPage = Math.max(1, p);
+    loadAdminBookmarks();
+  }
+
+  async function deleteAdminBookmark(scope, id) {
+    const safeScope = String(scope || '').trim();
+    const safeId = Number(id);
+    if (!safeScope || !Number.isInteger(safeId)) return;
+    if (!confirm('Delete this bookmark?')) return;
+
+    const res = await adminFetch(`/api/admin/bookmarks/${encodeURIComponent(safeScope)}/${safeId}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data.error || 'Failed to delete bookmark');
+      return;
+    }
+    loadAdminBookmarks();
+  }
+
   let libSearchTimer;
   document.getElementById('library-search').addEventListener('input', () => {
     clearTimeout(libSearchTimer);
@@ -1779,6 +1901,18 @@
     libPage = 1;
     skippedPage = 1;
     loadLibrary();
+  });
+  let bookmarksSearchTimer;
+  document.getElementById('bookmarks-search').addEventListener('input', () => {
+    clearTimeout(bookmarksSearchTimer);
+    bookmarksSearchTimer = setTimeout(() => {
+      bookmarksPage = 1;
+      loadAdminBookmarks();
+    }, 250);
+  });
+  document.getElementById('bookmarks-scope').addEventListener('change', () => {
+    bookmarksPage = 1;
+    loadAdminBookmarks();
   });
 
   document.getElementById('library-select-all').addEventListener('change', e => {

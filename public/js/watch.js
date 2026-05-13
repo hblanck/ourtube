@@ -98,9 +98,9 @@
     }
   }
 
-  function buildWatchUrl(bookmarkId = null) {
+  function buildWatchUrl(bookmarkId = null, targetMediaId = mediaId) {
     const origin = externalBaseUrl || window.location.origin;
-    const qs = new URLSearchParams({ id: mediaId });
+    const qs = new URLSearchParams({ id: String(targetMediaId || mediaId) });
     if (Number.isInteger(bookmarkId) && bookmarkId > 0) qs.set('bookmark', String(bookmarkId));
     return `${origin}/watch.html?${qs.toString()}`;
   }
@@ -180,6 +180,30 @@
       showWatchActionMessage(ok ? 'Video link copied' : 'Unable to copy link');
     });
     btn.dataset.bound = '1';
+  }
+
+  function closeBookmarkDialog() {
+    const modal = document.getElementById('bookmark-modal');
+    if (modal) modal.classList.remove('open');
+  }
+
+  function openBookmarkDialog() {
+    if (!currentMedia || currentMedia.type !== 'video') return;
+    const modal = document.getElementById('bookmark-modal');
+    const form = document.getElementById('bookmark-dialog-form');
+    const currentTime = document.getElementById('bookmark-dialog-time');
+    if (!modal || !form || !currentTime) return;
+
+    currentTime.textContent = fmtDur(Math.max(0, Number(getTimelineCurrentTime()) || 0));
+    modal.classList.add('open');
+    const title = form.querySelector('[name="title"]');
+    if (title) title.focus();
+  }
+
+  function updateBookmarkCreateButtonVisibility() {
+    const wrap = document.getElementById('bookmark-create-wrap');
+    if (!wrap) return;
+    wrap.style.display = currentMedia && currentMedia.type === 'video' ? '' : 'none';
   }
 
   function getCurrentDurationSeconds() {
@@ -1018,6 +1042,7 @@
     }
 
     bindShareVideoButton();
+    updateBookmarkCreateButtonVisibility();
   }
 
   function renderBookmarks(items = []) {
@@ -1093,9 +1118,8 @@
   }
 
   function bindBookmarkActions() {
-    const form = document.getElementById('bookmark-form');
     const list = document.getElementById('bookmarks-list');
-    if (!form || !list) return;
+    if (!list) return;
 
     if (list.dataset.bound !== '1') {
       list.addEventListener('click', async event => {
@@ -1114,6 +1138,37 @@
         }
       });
       list.dataset.bound = '1';
+    }
+  }
+
+  function bindBookmarkDialog() {
+    const openBtn = document.getElementById('open-bookmark-dialog-btn');
+    const closeBtn = document.getElementById('bookmark-dialog-close');
+    const cancelBtn = document.getElementById('bookmark-dialog-cancel');
+    const modal = document.getElementById('bookmark-modal');
+    const form = document.getElementById('bookmark-dialog-form');
+    if (!openBtn || !modal || !form) return;
+
+    if (openBtn.dataset.bound !== '1') {
+      openBtn.addEventListener('click', openBookmarkDialog);
+      openBtn.dataset.bound = '1';
+    }
+
+    if (closeBtn && closeBtn.dataset.bound !== '1') {
+      closeBtn.addEventListener('click', closeBookmarkDialog);
+      closeBtn.dataset.bound = '1';
+    }
+
+    if (cancelBtn && cancelBtn.dataset.bound !== '1') {
+      cancelBtn.addEventListener('click', closeBookmarkDialog);
+      cancelBtn.dataset.bound = '1';
+    }
+
+    if (modal.dataset.bound !== '1') {
+      modal.addEventListener('click', event => {
+        if (event.target === modal) closeBookmarkDialog();
+      });
+      modal.dataset.bound = '1';
     }
 
     if (form.dataset.bound === '1') return;
@@ -1147,6 +1202,7 @@
       }
 
       form.reset();
+      closeBookmarkDialog();
       showWatchActionMessage('Bookmark saved');
       await loadBookmarks(currentMedia);
     });
@@ -1238,6 +1294,21 @@
   async function loadRelated(media) {
     const grid = document.getElementById('related-grid');
     if (!grid) return;
+    grid.innerHTML = '';
+
+    if (grid.dataset.shareBound !== '1') {
+      grid.addEventListener('click', async event => {
+        const shareBtn = event.target.closest('[data-related-share-id]');
+        if (!shareBtn) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const targetId = String(shareBtn.getAttribute('data-related-share-id') || '').trim();
+        if (!targetId) return;
+        const ok = await copyTextToClipboard(buildWatchUrl(null, targetId));
+        showWatchActionMessage(ok ? 'Video link copied' : 'Unable to copy link');
+      });
+      grid.dataset.shareBound = '1';
+    }
 
     try {
       const params = new URLSearchParams({ limit: 12, sort: 'indexed_at', order: 'DESC', type: media.type });
@@ -1252,14 +1323,15 @@
         const thumb = `/thumbnail/${item.thumbnail_media_id || item.id}`;
         card.innerHTML = `
           <div class="related-thumb-wrap">
-            <img class="related-thumb" src="${thumb}" alt="${escHtml(item.friendly_name || item.file_name)}"
-                 loading="lazy" onerror="this.src='/img/no-thumb.svg'" />
-            ${item.duration ? `<span class="related-duration">${fmtDur(item.duration)}</span>` : ''}
-            ${item.is_virtual ? '<span class="related-badge">Stitched</span>' : ''}
-            ${adminModeEnabled && (item.visibility === 'admin' || item.source_visibility === 'admin') ? '<span class="related-badge related-badge-admin-only">Admin Only</span>' : ''}
-          </div>
-          <div class="related-info">
-            <div class="related-title">${escHtml(item.friendly_name || item.file_name)}</div>
+             <img class="related-thumb" src="${thumb}" alt="${escHtml(item.friendly_name || item.file_name)}"
+                  loading="lazy" onerror="this.src='/img/no-thumb.svg'" />
+             ${item.duration ? `<span class="related-duration">${fmtDur(item.duration)}</span>` : ''}
+             ${item.is_virtual ? '<span class="related-badge">Stitched</span>' : ''}
+             ${adminModeEnabled && (item.visibility === 'admin' || item.source_visibility === 'admin') ? '<span class="related-badge related-badge-admin-only">Admin Only</span>' : ''}
+             <button class="related-thumb-share" type="button" data-related-share-id="${escHtml(item.id)}" aria-label="Copy share URL">🔗</button>
+           </div>
+           <div class="related-info">
+             <div class="related-title">${escHtml(item.friendly_name || item.file_name)}</div>
             <div class="related-meta">${item.year || ''} ${item.location ? '· ' + escHtml(item.location) : ''}</div>
           </div>`;
         grid.appendChild(card);
@@ -1365,6 +1437,7 @@
     bindStitchedSegmentListActions();
     bindClipWatermarkToggle();
     bindBookmarkActions();
+    bindBookmarkDialog();
     bindCommentForm();
 
     const adminStatus = window.OurTubeAdminMode?.status?.();
