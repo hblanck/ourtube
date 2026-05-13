@@ -99,6 +99,29 @@
     }
   }
 
+  function showAppActionMessage(text) {
+    const message = String(text || '').trim();
+    if (!message) return;
+
+    let el = document.getElementById('app-action-msg');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'app-action-msg';
+      el.className = 'app-action-msg';
+      el.setAttribute('role', 'status');
+      el.setAttribute('aria-live', 'polite');
+      document.body.appendChild(el);
+    }
+
+    el.textContent = message;
+    el.classList.add('visible');
+
+    if (showAppActionMessage._timer) clearTimeout(showAppActionMessage._timer);
+    showAppActionMessage._timer = setTimeout(() => {
+      el.classList.remove('visible');
+    }, 1800);
+  }
+
   function buildCardTooltip(item, isVideo, collectionName) {
     const lines = [];
     const displayName = String(item.friendly_name || item.file_name || 'Untitled');
@@ -470,49 +493,19 @@
     });
   }
 
-  function closeMediaCardMenus(exceptCard = null) {
-    document.querySelectorAll('.media-card.menu-open').forEach(card => {
-      if (exceptCard && card === exceptCard) return;
-      card.classList.remove('menu-open');
-    });
-  }
-
-  function initMediaCardMenus() {
+  function initMediaCardShareButtons() {
     document.addEventListener('click', async event => {
-      const toggle = event.target.closest('[data-card-menu-toggle]');
-      if (toggle) {
-        event.preventDefault();
-        event.stopPropagation();
-        const card = toggle.closest('.media-card');
-        if (!card) return;
-        const isOpen = card.classList.contains('menu-open');
-        closeMediaCardMenus();
-        if (!isOpen) card.classList.add('menu-open');
-        return;
-      }
-
-      const shareAction = event.target.closest('[data-card-menu-share-id]');
+      const shareAction = event.target.closest('[data-card-share-id]');
       if (shareAction) {
         event.preventDefault();
         event.stopPropagation();
-        const mediaId = String(shareAction.getAttribute('data-card-menu-share-id') || '').trim();
+        const mediaId = String(shareAction.getAttribute('data-card-share-id') || '').trim();
         if (!mediaId) return;
 
         const ok = await copyTextToClipboard(buildWatchUrl(mediaId));
-        const previousLabel = shareAction.textContent;
-        shareAction.textContent = ok ? 'Copied' : 'Copy failed';
-        setTimeout(() => {
-          shareAction.textContent = previousLabel;
-        }, 1200);
-        closeMediaCardMenus();
+        showAppActionMessage(ok ? 'Video link copied to clipboard' : 'Unable to copy link');
         return;
       }
-
-      closeMediaCardMenus();
-    });
-
-    document.addEventListener('keydown', event => {
-      if (event.key === 'Escape') closeMediaCardMenus();
     });
   }
 
@@ -747,10 +740,7 @@
         ${rightBadges.length ? `<div class="card-right-badges">${rightBadges.join('')}</div>` : ''}
       </div>
       <div class="card-info">
-        <button class="card-menu-btn" type="button" data-card-menu-toggle="1" aria-label="Open card menu">...</button>
-        <div class="card-menu" role="menu">
-          <button class="card-menu-item" type="button" data-card-menu-share-id="${escHtml(item.id)}" role="menuitem">Share link</button>
-        </div>
+        <button class="card-share-btn" type="button" data-card-share-id="${escHtml(item.id)}" aria-label="Share video link">🔗</button>
         <div class="card-title">${name}</div>
         <div class="card-meta">
           ${item.year ? item.year : ''}
@@ -1095,7 +1085,7 @@
     initSidebarToggle();
   bindFeaturedSectionToggle();
     bindFilters();
-    initMediaCardMenus();
+    initMediaCardShareButtons();
     initMediaCardTooltips();
     initMediaCardPreviews();
     await Promise.all([loadFeatured(), loadStats(), loadYearFilter(), loadLocationFilter(), loadSourceLocationFilter()]);

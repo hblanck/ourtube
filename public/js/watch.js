@@ -1337,13 +1337,6 @@
     form.dataset.bound = '1';
   }
 
-  function closeRelatedThumbMenus(exceptWrap = null) {
-    document.querySelectorAll('.related-card.menu-open').forEach(wrap => {
-      if (exceptWrap && wrap === exceptWrap) return;
-      wrap.classList.remove('menu-open');
-    });
-  }
-
   async function loadRelated(media) {
     const grid = document.getElementById('related-grid');
     if (!grid) return;
@@ -1351,27 +1344,14 @@
 
     if (grid.dataset.shareBound !== '1') {
       grid.addEventListener('click', async event => {
-        const menuToggle = event.target.closest('[data-related-menu-toggle]');
-        if (menuToggle) {
-          event.preventDefault();
-          event.stopPropagation();
-          const card = menuToggle.closest('.related-card[data-related-href]');
-          if (!card) return;
-          const isOpen = card.classList.contains('menu-open');
-          closeRelatedThumbMenus();
-          if (!isOpen) card.classList.add('menu-open');
-          return;
-        }
-
-        const shareItem = event.target.closest('[data-related-menu-share-id]');
+        const shareItem = event.target.closest('[data-related-share-id]');
         if (shareItem) {
           event.preventDefault();
           event.stopPropagation();
-          const targetId = String(shareItem.getAttribute('data-related-menu-share-id') || '').trim();
+          const targetId = String(shareItem.getAttribute('data-related-share-id') || '').trim();
           if (!targetId) return;
           const ok = await copyTextToClipboard(buildWatchUrl(null, targetId));
           showWatchActionMessage(ok ? 'Video link copied to clipboard' : 'Unable to copy link');
-          closeRelatedThumbMenus();
           return;
         }
 
@@ -1380,8 +1360,6 @@
           window.location.href = linkCard.dataset.relatedHref || linkCard.getAttribute('data-related-href') || '';
           return;
         }
-
-        closeRelatedThumbMenus();
       });
       grid.addEventListener('keydown', event => {
         if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -1390,7 +1368,6 @@
         event.preventDefault();
         window.location.href = linkCard.dataset.relatedHref || linkCard.getAttribute('data-related-href') || '';
       });
-      document.addEventListener('click', () => closeRelatedThumbMenus());
       grid.dataset.shareBound = '1';
     }
 
@@ -1417,10 +1394,7 @@
              ${adminModeEnabled && (item.visibility === 'admin' || item.source_visibility === 'admin') ? '<span class="related-badge related-badge-admin-only">Admin Only</span>' : ''}
            </div>
            <div class="related-info">
-             <button class="related-thumb-menu-btn" type="button" data-related-menu-toggle="1" aria-label="Open thumbnail menu">...</button>
-             <div class="related-thumb-menu" role="menu">
-               <button class="related-thumb-menu-item" type="button" data-related-menu-share-id="${escHtml(item.id)}" role="menuitem">🔗 Share video</button>
-             </div>
+             <button class="related-share-btn" type="button" data-related-share-id="${escHtml(item.id)}" aria-label="Share video link">🔗</button>
              <div class="related-title">${escHtml(item.friendly_name || item.file_name)}</div>
             <div class="related-meta">${item.year || ''} ${item.location ? '· ' + escHtml(item.location) : ''}</div>
           </div>`;

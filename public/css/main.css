@@ -762,7 +762,7 @@ a { color: inherit; text-decoration: none; }
   position: relative;
 }
 
-.card-menu-btn {
+.card-share-btn {
   position: absolute;
   top: 8px;
   right: 8px;
@@ -781,42 +781,30 @@ a { color: inherit; text-decoration: none; }
   z-index: 5;
 }
 
-.card-menu-btn:hover {
+.card-share-btn:hover {
   background: #fff;
 }
 
-.card-menu {
-  position: absolute;
-  top: 36px;
-  right: 8px;
-  min-width: 130px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  box-shadow: var(--card-shadow);
-  padding: 4px;
-  z-index: 6;
-  display: none;
-}
-
-.media-card.menu-open .card-menu {
-  display: block;
-}
-
-.card-menu-item {
-  width: 100%;
-  border: 0;
-  background: transparent;
-  color: var(--text);
+.app-action-msg {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  z-index: 1400;
+  background: rgba(20, 26, 36, 0.92);
+  color: #eef3fb;
+  border: 1px solid rgba(238, 243, 251, 0.18);
+  border-radius: 8px;
+  padding: 8px 10px;
   font-size: 12px;
-  text-align: left;
-  padding: 6px 8px;
-  border-radius: 4px;
-  cursor: pointer;
+  opacity: 0;
+  transform: translateY(6px);
+  pointer-events: none;
+  transition: opacity 0.14s ease, transform 0.14s ease;
 }
 
-.card-menu-item:hover {
-  background: color-mix(in oklab, var(--text) 10%, transparent);
+.app-action-msg.visible {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .card-title {
@@ -1450,7 +1438,7 @@ a { color: inherit; text-decoration: none; }
   position: relative;
 }
 
-.related-thumb-menu-btn {
+.related-share-btn {
   position: absolute;
   top: 50%;
   right: 4px;
@@ -1472,43 +1460,8 @@ a { color: inherit; text-decoration: none; }
   z-index: 3;
 }
 
-.related-thumb-menu-btn:hover {
+.related-share-btn:hover {
   background: #ffffff;
-}
-
-.related-thumb-menu {
-  position: absolute;
-  top: 34px;
-  right: 4px;
-  left: auto;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  box-shadow: var(--card-shadow);
-  min-width: 140px;
-  z-index: 4;
-  padding: 4px;
-  display: none;
-}
-
-.related-thumb-wrap.menu-open .related-thumb-menu {
-  display: block;
-}
-
-.related-thumb-menu-item {
-  width: 100%;
-  border: 0;
-  background: transparent;
-  color: var(--text);
-  font-size: 12px;
-  text-align: left;
-  padding: 6px 8px;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.related-thumb-menu-item:hover {
-  background: color-mix(in oklab, var(--text) 10%, transparent);
 }
 
 .related-thumb {
