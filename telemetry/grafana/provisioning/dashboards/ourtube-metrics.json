@@ -18,8 +18,12 @@
   "id": null,
   "links": [
     {
-      "title": "Open OurTube Debug Metrics",
-      "url": "/d/ourtube-debug-metrics",
+      "title": "OurTube",
+      "type": "dashboards",
+      "tags": [
+        "ourtube"
+      ],
+      "asDropdown": true,
       "targetBlank": false
     }
   ],
@@ -76,7 +80,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 0
+        "y": 4
       },
       "id": 2,
       "options": {
@@ -157,7 +161,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 0
+        "y": 4
       },
       "id": 3,
       "options": {
@@ -233,7 +237,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 8
+        "y": 12
       },
       "id": 4,
       "options": {
@@ -309,7 +313,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 8
+        "y": 12
       },
       "id": 5,
       "options": {
@@ -357,7 +361,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 16
+        "y": 20
       },
       "id": 6,
       "options": {
@@ -409,7 +413,7 @@
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 16
+        "y": 20
       },
       "id": 7,
       "options": {
@@ -462,7 +466,7 @@
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 16
+        "y": 20
       },
       "id": 8,
       "options": {
@@ -514,7 +518,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 16
+        "y": 20
       },
       "id": 9,
       "options": {
@@ -563,343 +567,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 20
-      },
-      "id": 10,
-      "options": {
-        "showHeader": true
-      },
-      "pluginVersion": "8.0.0",
-      "targets": [
-        {
-          "limit": 20,
-          "queryType": "search",
-          "refId": "A",
-          "service": "ourtube"
-        }
-      ],
-      "title": "Recent Traces (Jaeger)",
-      "type": "table"
-    },
-    {
-      "datasource": "Jaeger",
-      "fieldConfig": {
-        "defaults": {
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 32
-      },
-      "id": 11,
-      "options": {
-        "showHeader": true
-      },
-      "pluginVersion": "8.0.0",
-      "targets": [
-        {
-          "limit": 20,
-          "queryType": "search",
-          "refId": "A",
-          "service": "ourtube",
-          "tags": "error=true"
-        }
-      ],
-      "title": "Recent Error Traces",
-      "type": "table"
-    },
-    {
-      "datasource": "Jaeger",
-      "fieldConfig": {
-        "defaults": {
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 32
-      },
-      "id": 12,
-      "options": {
-        "showHeader": true
-      },
-      "pluginVersion": "8.0.0",
-      "targets": [
-        {
-          "limit": 20,
-          "queryType": "search",
-          "refId": "A",
-          "service": "ourtube",
-          "minDuration": "250ms"
-        }
-      ],
-      "title": "Slow Traces (>= 250ms)",
-      "type": "table"
-    },
-    {
-      "datasource": null,
-      "gridPos": {
-        "h": 4,
-        "w": 24,
-        "x": 0,
-        "y": 40
-      },
-      "id": 13,
-      "options": {
-        "content": "### Trace Links\n- Click any trace row in the Jaeger tables above to open that trace detail directly.\n- Stream traces use `http.route=/stream/:id`.\n- Admin traces use `http.route=/api/admin`.\n- Open Jaeger search directly: [Jaeger OurTube search](http://localhost:16686/search?service=ourtube)",
-        "mode": "markdown"
-      },
-      "pluginVersion": "8.0.0",
-      "title": "Trace Navigation",
-      "type": "text"
-    },
-    {
-      "datasource": "Jaeger",
-      "fieldConfig": {
-        "defaults": {
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 44
-      },
-      "id": 14,
-      "options": {
-        "showHeader": true
-      },
-      "pluginVersion": "8.0.0",
-      "targets": [
-        {
-          "limit": 20,
-          "queryType": "search",
-          "refId": "A",
-          "service": "ourtube",
-          "tags": "http.route=/stream/:id"
-        }
-      ],
-      "title": "Stream Playback Traces",
-      "type": "table"
-    },
-    {
-      "datasource": "Jaeger",
-      "fieldConfig": {
-        "defaults": {
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 44
-      },
-      "id": 15,
-      "options": {
-        "showHeader": true
-      },
-      "pluginVersion": "8.0.0",
-      "targets": [
-        {
-          "limit": 20,
-          "queryType": "search",
-          "refId": "A",
-          "service": "ourtube",
-          "tags": "http.route=/api/admin"
-        }
-      ],
-      "title": "Admin Route Traces",
-      "type": "table"
-    },
-    {
-      "datasource": "Jaeger",
-      "fieldConfig": {
-        "defaults": {
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 52
-      },
-      "id": 16,
-      "options": {
-        "showHeader": true
-      },
-      "pluginVersion": "8.0.0",
-      "targets": [
-        {
-          "limit": 20,
-          "queryType": "search",
-          "refId": "A",
-          "service": "ourtube",
-          "tags": "http.route=/stream/:id/transcode"
-        }
-      ],
-      "title": "Stream Transcode Traces",
-      "type": "table"
-    },
-    {
-      "datasource": "Jaeger",
-      "fieldConfig": {
-        "defaults": {
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 52
-      },
-      "id": 17,
-      "options": {
-        "showHeader": true
-      },
-      "pluginVersion": "8.0.0",
-      "targets": [
-        {
-          "limit": 20,
-          "queryType": "search",
-          "refId": "A",
-          "service": "ourtube",
-          "tags": "http.route=/api/admin/scan/all"
-        }
-      ],
-      "title": "Admin Scan-All Traces",
-      "type": "table"
-    },
-    {
-      "datasource": "Jaeger",
-      "fieldConfig": {
-        "defaults": {
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 60
-      },
-      "id": 18,
-      "options": {
-        "showHeader": true
-      },
-      "pluginVersion": "8.0.0",
-      "targets": [
-        {
-          "limit": 20,
-          "queryType": "search",
-          "refId": "A",
-          "service": "ourtube",
-          "tags": "http.route=/api/admin/scan/status"
-        }
-      ],
-      "title": "Admin Scan-Status Traces",
-      "type": "table"
-    },
-    {
-      "datasource": "Jaeger",
-      "fieldConfig": {
-        "defaults": {
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 24,
-        "x": 0,
-        "y": 20
+        "y": 36
       },
       "id": 19,
       "options": {
@@ -941,7 +609,7 @@
         "h": 4,
         "w": 8,
         "x": 0,
-        "y": 28
+        "y": 24
       },
       "id": 20,
       "options": {
@@ -992,7 +660,7 @@
         "h": 4,
         "w": 8,
         "x": 8,
-        "y": 28
+        "y": 24
       },
       "id": 21,
       "options": {
@@ -1044,7 +712,7 @@
         "h": 4,
         "w": 8,
         "x": 16,
-        "y": 28
+        "y": 24
       },
       "id": 22,
       "options": {
@@ -1072,128 +740,6 @@
       "type": "stat"
     },
     {
-      "datasource": "Jaeger",
-      "fieldConfig": {
-        "defaults": {
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 24,
-        "x": 0,
-        "y": 68
-      },
-      "id": 23,
-      "options": {
-        "showHeader": true
-      },
-      "pluginVersion": "8.0.0",
-      "targets": [
-        {
-          "limit": 20,
-          "queryType": "search",
-          "refId": "A",
-          "service": "ourtube",
-          "tags": "error=true"
-        }
-      ],
-      "title": "Error Traces by Operation",
-      "type": "table"
-    },
-    {
-      "datasource": "Jaeger",
-      "fieldConfig": {
-        "defaults": {
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 76
-      },
-      "id": 24,
-      "options": {
-        "showHeader": true
-      },
-      "pluginVersion": "8.0.0",
-      "targets": [
-        {
-          "limit": 20,
-          "queryType": "search",
-          "refId": "A",
-          "service": "ourtube",
-          "tags": "http.route=/stream/:id",
-          "minDuration": "250ms"
-        }
-      ],
-      "title": "Slow Stream Traces",
-      "type": "table"
-    },
-    {
-      "datasource": "Jaeger",
-      "fieldConfig": {
-        "defaults": {
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 76
-      },
-      "id": 25,
-      "options": {
-        "showHeader": true
-      },
-      "pluginVersion": "8.0.0",
-      "targets": [
-        {
-          "limit": 20,
-          "queryType": "search",
-          "refId": "A",
-          "service": "ourtube",
-          "tags": "http.route=/api/admin",
-          "minDuration": "250ms"
-        }
-      ],
-      "title": "Slow Admin Traces",
-      "type": "table"
-    },
-    {
       "datasource": "Prometheus",
       "fieldConfig": {
         "defaults": {
@@ -1217,7 +763,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 84
+        "y": 0
       },
       "id": 26,
       "options": {
@@ -1269,7 +815,7 @@
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 84
+        "y": 0
       },
       "id": 27,
       "options": {
@@ -1321,7 +867,7 @@
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 84
+        "y": 0
       },
       "id": 28,
       "options": {
@@ -1374,7 +920,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 84
+        "y": 0
       },
       "id": 29,
       "options": {
@@ -1401,12 +947,362 @@
       ],
       "title": "Avg Session Duration (s)",
       "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 28
+      },
+      "id": 30,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "text": {},
+        "textMode": "auto"
+      },
+      "pluginVersion": "8.0.0",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(ourtube_playback_startup_latency_seconds_bucket[5m])) by (le))",
+          "refId": "A"
+        }
+      ],
+      "title": "Playback Startup p95 (5m)",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 18,
+        "x": 6,
+        "y": 28
+      },
+      "id": 31,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "pluginVersion": "8.0.0",
+      "targets": [
+        {
+          "expr": "sum by (milestone) (rate(ourtube_playback_milestones_total[5m])) * 60",
+          "legendFormat": "{{milestone}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Playback Milestones / min",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 32
+      },
+      "id": 32,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "text": {},
+        "textMode": "auto"
+      },
+      "pluginVersion": "8.0.0",
+      "targets": [
+        {
+          "expr": "max(ourtube_scan_staleness_seconds)",
+          "refId": "A"
+        }
+      ],
+      "title": "Most Stale Source (s)",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 10,
+        "x": 6,
+        "y": 32
+      },
+      "id": 33,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "pluginVersion": "8.0.0",
+      "targets": [
+        {
+          "expr": "sum by (outcome) (rate(ourtube_scan_files_total[5m])) * 60",
+          "legendFormat": "{{outcome}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Scan Outcomes / min",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 32
+      },
+      "id": 34,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "text": {},
+        "textMode": "auto"
+      },
+      "pluginVersion": "8.0.0",
+      "targets": [
+        {
+          "expr": "ourtube_transcode_active_jobs + ourtube_hls_active_jobs + ourtube_thumbnail_active_jobs",
+          "refId": "A"
+        }
+      ],
+      "title": "Active Jobs",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 32
+      },
+      "id": 35,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "text": {},
+        "textMode": "auto"
+      },
+      "pluginVersion": "8.0.0",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(ourtube_transcode_duration_seconds_bucket[5m])) by (le))",
+          "refId": "A"
+        }
+      ],
+      "title": "Transcode p95 Duration (5m)",
+      "type": "stat"
     }
   ],
   "refresh": "5s",
   "schemaVersion": 27,
   "style": "dark",
-  "tags": ["ourtube", "metrics"],
+  "tags": [
+    "ourtube",
+    "metrics"
+  ],
   "templating": {
     "list": []
   },

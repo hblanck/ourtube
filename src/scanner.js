@@ -189,6 +189,7 @@ async function indexFile(filePath, locationId) {
       scanWarn(`[scanner] Metadata error for ${filePath}: ${err.message}`);
   }
 
+  const thumbStartedAt = telemetry.startThumbnailJob();
   try {
     if (type === 'video') {
       await generateVideoThumbnail(filePath, thumbPath);
@@ -196,7 +197,9 @@ async function indexFile(filePath, locationId) {
       await generatePhotoThumbnail(filePath, thumbPath);
     }
     thumbnailGenerated = true;
+    telemetry.finishThumbnailJob(thumbStartedAt, { media_type: type, status: 'ok' });
   } catch (err) {
+      telemetry.finishThumbnailJob(thumbStartedAt, { media_type: type, status: 'error' });
       scanWarn(`[scanner] Thumbnail error for ${filePath}: ${err.message}`);
   }
 
@@ -270,6 +273,7 @@ async function indexFile(filePath, locationId) {
 }
 
 async function scanLocation(location) {
+  const startedAt = Date.now();
   const entries = getLocationEntries(location);
   scanInfo(`[scanner] Scanning location: ${location.name} (${entries.length} path entries)`);
 
@@ -315,6 +319,7 @@ async function scanLocation(location) {
 
   const files = Array.from(fileSet);
   scanInfo(`[scanner] Found ${files.length} media files in ${location.name}`);
+  telemetry.recordScanFiles('found', files.length, { source_location: String(location.name || location.id) });
 
   let indexed = 0;
   let errors = 0;
@@ -344,6 +349,12 @@ async function scanLocation(location) {
   getDb()
     .prepare('UPDATE source_locations SET last_scanned = datetime(\'now\') WHERE id = ?')
     .run(location.id);
+
+  const skipped = Math.max(0, files.length - indexed - errors);
+  telemetry.recordScanFiles('indexed', indexed, { source_location: String(location.name || location.id) });
+  telemetry.recordScanFiles('skipped', skipped, { source_location: String(location.name || location.id) });
+  telemetry.recordScanFiles('error', errors, { source_location: String(location.name || location.id) });
+  telemetry.recordScanDuration((Date.now() - startedAt) / 1000, { source_location: String(location.name || location.id) });
 
   return { found: files.length, indexed, errors };
 }

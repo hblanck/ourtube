@@ -16,8 +16,183 @@
   "gnetId": null,
   "graphTooltip": 0,
   "id": null,
-  "links": [],
+  "links": [
+    {
+      "title": "OurTube",
+      "type": "dashboards",
+      "tags": [
+        "ourtube"
+      ],
+      "asDropdown": true,
+      "targetBlank": false
+    },
+    {
+      "title": "Open Jaeger UI",
+      "type": "link",
+      "url": "http://localhost:16686",
+      "targetBlank": true
+    },
+    {
+      "title": "Open Prometheus",
+      "type": "link",
+      "url": "http://localhost:9090",
+      "targetBlank": true
+    }
+  ],
   "panels": [
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 0,
+        "y": 0
+      },
+      "id": 5,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value"
+      },
+      "pluginVersion": "8.0.0",
+      "targets": [
+        {
+          "expr": "count(count by (__name__) ({job=\"ourtube\"}))",
+          "refId": "A"
+        }
+      ],
+      "title": "Unique Metric Names",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 8,
+        "y": 0
+      },
+      "id": 6,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value"
+      },
+      "pluginVersion": "8.0.0",
+      "targets": [
+        {
+          "expr": "count({job=\"ourtube\"})",
+          "refId": "A"
+        }
+      ],
+      "title": "Active Time Series",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 16,
+        "y": 0
+      },
+      "id": 7,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value"
+      },
+      "pluginVersion": "8.0.0",
+      "targets": [
+        {
+          "expr": "sum(count_over_time({job=\"ourtube\"}[5m]))",
+          "refId": "A"
+        }
+      ],
+      "title": "Samples Seen (Last 5m)",
+      "type": "stat"
+    },
     {
       "datasource": "Prometheus",
       "fieldConfig": {
@@ -42,7 +217,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 0
+        "y": 4
       },
       "id": 1,
       "options": {
@@ -63,7 +238,7 @@
           "refId": "A"
         }
       ],
-      "title": "Metric Names (Series Count)",
+      "title": "Metric Names",
       "type": "table"
     },
     {
@@ -90,7 +265,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 0
+        "y": 4
       },
       "id": 2,
       "options": {
@@ -105,7 +280,7 @@
           "refId": "A"
         }
       ],
-      "title": "Custom OurTube Metrics (Instant)",
+      "title": "Custom OurTube Metrics",
       "type": "table"
     },
     {
@@ -160,7 +335,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 8
+        "y": 12
       },
       "id": 3,
       "options": {
@@ -196,7 +371,7 @@
           "refId": "D"
         }
       ],
-      "title": "Core Request/Stream Rates (1m)",
+      "title": "Core Traffic Rates (1m)",
       "type": "timeseries"
     },
     {
@@ -223,7 +398,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 8
+        "y": 12
       },
       "id": 4,
       "options": {
@@ -246,7 +421,35 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "thresholds"
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
           },
           "mappings": [],
           "thresholds": {
@@ -257,47 +460,45 @@
                 "value": null
               }
             ]
-          }
+          },
+          "unit": "s"
         },
         "overrides": []
       },
       "gridPos": {
-        "h": 4,
-        "w": 8,
+        "h": 8,
+        "w": 12,
         "x": 0,
-        "y": 16
+        "y": 20
       },
-      "id": 5,
+      "id": 8,
       "options": {
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom"
         },
-        "textMode": "value"
+        "tooltip": {
+          "mode": "single"
+        }
       },
       "pluginVersion": "8.0.0",
       "targets": [
         {
-          "expr": "count(count by (__name__) ({job=\"ourtube\"}))",
+          "expr": "histogram_quantile(0.95, sum by (le, mode) (rate(ourtube_playback_startup_latency_seconds_bucket[5m])))",
+          "legendFormat": "{{mode}}",
           "refId": "A"
         }
       ],
-      "title": "Unique Metric Names",
-      "type": "stat"
+      "title": "Playback Startup p95 by Mode (5m)",
+      "type": "timeseries"
     },
     {
       "datasource": "Prometheus",
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "thresholds"
+            "mode": "palette-classic"
           },
           "mappings": [],
           "thresholds": {
@@ -313,42 +514,67 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 4,
-        "w": 8,
-        "x": 8,
-        "y": 16
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 20
       },
-      "id": 6,
+      "id": 9,
       "options": {
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom"
         },
-        "textMode": "value"
+        "tooltip": {
+          "mode": "single"
+        }
       },
       "pluginVersion": "8.0.0",
       "targets": [
         {
-          "expr": "count({job=\"ourtube\"})",
+          "expr": "sum by (milestone) (rate(ourtube_playback_milestones_total[5m])) * 60",
+          "legendFormat": "{{milestone}}",
           "refId": "A"
         }
       ],
-      "title": "Active Time Series",
-      "type": "stat"
+      "title": "Playback Milestones / min by Threshold",
+      "type": "timeseries"
     },
     {
       "datasource": "Prometheus",
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "thresholds"
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
           },
           "mappings": [],
           "thresholds": {
@@ -364,35 +590,167 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 4,
-        "w": 8,
-        "x": 16,
-        "y": 16
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 28
       },
-      "id": 7,
+      "id": 10,
       "options": {
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom"
         },
-        "textMode": "value"
+        "tooltip": {
+          "mode": "single"
+        }
       },
       "pluginVersion": "8.0.0",
       "targets": [
         {
-          "expr": "sum(count_over_time({job=\"ourtube\"}[5m]))",
+          "expr": "ourtube_thumbnail_active_jobs",
+          "legendFormat": "thumbnail",
+          "refId": "A"
+        },
+        {
+          "expr": "ourtube_transcode_active_jobs",
+          "legendFormat": "transcode",
+          "refId": "B"
+        },
+        {
+          "expr": "ourtube_hls_active_jobs",
+          "legendFormat": "hls",
+          "refId": "C"
+        }
+      ],
+      "title": "Active Jobs by Pipeline",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 28
+      },
+      "id": 11,
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "Value"
+          }
+        ]
+      },
+      "pluginVersion": "8.0.0",
+      "targets": [
+        {
+          "expr": "ourtube_scan_staleness_seconds",
+          "format": "table",
+          "instant": true,
           "refId": "A"
         }
       ],
-      "title": "Samples Seen (Last 5m)",
-      "type": "stat"
+      "title": "Scan Staleness by Source (s)",
+      "type": "table"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 36
+      },
+      "id": 12,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "pluginVersion": "8.0.0",
+      "targets": [
+        {
+          "expr": "sum by (mode, status) (rate(ourtube_transcode_duration_seconds_count[5m])) * 60",
+          "legendFormat": "{{mode}} / {{status}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Transcode Outcomes / min by Mode",
+      "type": "timeseries"
     }
   ],
   "refresh": "5s",
@@ -414,5 +772,5 @@
   "timezone": "",
   "title": "OurTube Debug Metrics",
   "uid": "ourtube-debug-metrics",
-  "version": 1
+  "version": 2
 }

@@ -25,6 +25,15 @@ let sdk = null;
 let _meter = null;
 let _engagementGauges = null;
 let _engagementUpdateInterval = null;
+let _otelMetrics = null;
+
+const _activeJobs = {
+  thumbnail: 0,
+  transcode: 0,
+  hls: 0,
+};
+
+const _scanStalenessSeconds = new Map();
 
 // Shared counters available even without an OTLP endpoint.
 const _localCounters = {
@@ -85,6 +94,30 @@ function init() {
     const scanCounter = _meter.createCounter('ourtube.scans.total', { description: 'Total library scans completed' });
     const bytesCounter = _meter.createCounter('ourtube.stream.bytes_sent', { description: 'Total bytes sent via streams' });
     const streamCounter = _meter.createCounter('ourtube.stream.requests.total', { description: 'Total stream requests' });
+    const playbackMilestoneCounter = _meter.createCounter('ourtube.playback.milestones.total', { description: 'Playback milestone transitions' });
+    const scanFilesCounter = _meter.createCounter('ourtube.scan.files.total', { description: 'Files observed during scans by outcome' });
+
+    const playbackStartupHistogram = _meter.createHistogram('ourtube.playback.startup_latency_seconds', {
+      description: 'Latency between stream request start and first bytes delivered',
+      unit: 's',
+    });
+    const scanDurationHistogram = _meter.createHistogram('ourtube.scan.duration_seconds', {
+      description: 'Scan duration per source location',
+      unit: 's',
+    });
+    const thumbnailDurationHistogram = _meter.createHistogram('ourtube.thumbnail.duration_seconds', {
+      description: 'Thumbnail generation duration',
+      unit: 's',
+    });
+    const transcodeDurationHistogram = _meter.createHistogram('ourtube.transcode.duration_seconds', {
+      description: 'Transcode and HLS job duration',
+      unit: 's',
+    });
+
+    const thumbnailActiveGauge = _meter.createObservableGauge('ourtube.thumbnail.active_jobs', { description: 'Active thumbnail generation jobs' });
+    const transcodeActiveGauge = _meter.createObservableGauge('ourtube.transcode.active_jobs', { description: 'Active transcode jobs' });
+    const hlsActiveGauge = _meter.createObservableGauge('ourtube.hls.active_jobs', { description: 'Active HLS jobs' });
+    const scanStalenessGauge = _meter.createObservableGauge('ourtube.scan.staleness_seconds', { description: 'Seconds since last successful scan by source location' });
 
     // Engagement metrics (gauges updated from database)
     const totalViewsGauge = _meter.createObservableGauge('ourtube.engagement.total_views', { description: 'Total views across all media' });
@@ -119,6 +152,12 @@ function init() {
       batchObservableCallback.observe(avgSessionDurationGauge, _engagementGauges.values.avgSessionDuration);
       batchObservableCallback.observe(totalBytesSessionsGauge, _engagementGauges.values.totalBytesSessions);
       batchObservableCallback.observe(mediaViewedGauge, _engagementGauges.values.mediaViewed);
+      batchObservableCallback.observe(thumbnailActiveGauge, _activeJobs.thumbnail);
+      batchObservableCallback.observe(transcodeActiveGauge, _activeJobs.transcode);
+      batchObservableCallback.observe(hlsActiveGauge, _activeJobs.hls);
+      for (const [sourceLocation, seconds] of _scanStalenessSeconds.entries()) {
+        batchObservableCallback.observe(scanStalenessGauge, seconds, { source_location: sourceLocation });
+      }
     }, [
       totalViewsGauge,
       totalSessionsGauge,
@@ -126,10 +165,22 @@ function init() {
       avgSessionDurationGauge,
       totalBytesSessionsGauge,
       mediaViewedGauge,
+      thumbnailActiveGauge,
+      transcodeActiveGauge,
+      hlsActiveGauge,
+      scanStalenessGauge,
     ]);
 
     // Attach the meter counters so callers can increment them
     _localCounters._otel = { reqCounter, scanCounter, bytesCounter, streamCounter };
+    _otelMetrics = {
+      playbackMilestoneCounter,
+      scanFilesCounter,
+      playbackStartupHistogram,
+      scanDurationHistogram,
+      thumbnailDurationHistogram,
+      transcodeDurationHistogram,
+    };
 
     // Start periodic engagement metrics update
     startEngagementMetricsUpdate();
@@ -173,6 +224,52 @@ function getStats() {
     enabled,
     otlpEndpoint: enabled ? otlpEndpoint : null,
     serviceName: process.env.OTEL_SERVICE_NAME || 'ourtube',
+    activeJobs: {
+      thumbnail: _activeJobs.thumbnail,
+      transcode: _activeJobs.transcode,
+      hls: _activeJobs.hls,
+    },
+    capabilities: {
+      playbackStartup: true,
+      playbackMilestones: true,
+      scanFreshness: true,
+      scanOutcomes: true,
+      thumbnailDuration: true,
+      transcodeDuration: true,
+      exemplarsConfigured: false,
+      traceLinksAvailable: true,
+    },
+    links: {
+      grafana: process.env.GRAFANA_PUBLIC_URL || `http://localhost:${process.env.GRAFANA_HOST_PORT || '3001'}`,
+      prometheus: process.env.PROMETHEUS_PUBLIC_URL || `http://localhost:${process.env.PROMETHEUS_HOST_PORT || '9090'}`,
+      jaeger: process.env.JAEGER_PUBLIC_URL || `http://localhost:${process.env.JAEGER_UI_HOST_PORT || '16686'}`,
+    },
+    signalGuide: [
+      {
+        key: 'playback_startup',
+        label: 'Playback startup latency',
+        summary: 'Measures time from stream request to first bytes delivered.',
+        dashboard: 'OurTube Metrics',
+      },
+      {
+        key: 'playback_funnel',
+        label: 'Playback milestones',
+        summary: 'Tracks 25/50/75/95/completed progress thresholds for viewer drop-off analysis.',
+        dashboard: 'OurTube Metrics',
+      },
+      {
+        key: 'scan_freshness',
+        label: 'Scan freshness',
+        summary: 'Shows how stale each source location is since its last successful scan.',
+        dashboard: 'OurTube Metrics',
+      },
+      {
+        key: 'pipeline_jobs',
+        label: 'Thumbnail and transcode jobs',
+        summary: 'Tracks active background jobs plus thumbnail/transcode duration trends.',
+        dashboard: 'OurTube Debug Metrics',
+      },
+    ],
     counters: {
       httpRequests: _localCounters.httpRequests,
       scansRun: _localCounters.scansRun,
@@ -225,9 +322,83 @@ function updateEngagementMetrics() {
     if (viewStats) {
       _engagementGauges.values.totalViews = viewStats.total_views || 0;
     }
+
+    const stalenessRows = db.prepare(
+      `SELECT name, CAST((julianday('now') - julianday(last_scanned)) * 86400 AS INTEGER) AS seconds_stale
+         FROM source_locations
+        WHERE enabled = 1`
+    ).all();
+
+    _scanStalenessSeconds.clear();
+    for (const row of stalenessRows) {
+      if (!row?.name) continue;
+      const staleSeconds = Number.isFinite(row.seconds_stale) ? Math.max(0, row.seconds_stale) : 0;
+      _scanStalenessSeconds.set(String(row.name), staleSeconds);
+    }
   } catch (err) {
     console.warn('[telemetry] Failed to update engagement metrics:', err.message);
   }
+}
+
+function nowSeconds() {
+  return Date.now() / 1000;
+}
+
+function elapsedSeconds(startedAtSeconds) {
+  if (!Number.isFinite(startedAtSeconds)) return 0;
+  return Math.max(0, nowSeconds() - startedAtSeconds);
+}
+
+function startThumbnailJob() {
+  _activeJobs.thumbnail += 1;
+  return nowSeconds();
+}
+
+function finishThumbnailJob(startedAtSeconds, attributes = {}) {
+  _activeJobs.thumbnail = Math.max(0, _activeJobs.thumbnail - 1);
+  const durationSeconds = elapsedSeconds(startedAtSeconds);
+  _otelMetrics?.thumbnailDurationHistogram?.record(durationSeconds, attributes);
+}
+
+function startTranscodeJob(kind = 'transcode') {
+  if (kind === 'hls') {
+    _activeJobs.hls += 1;
+  } else {
+    _activeJobs.transcode += 1;
+  }
+  return nowSeconds();
+}
+
+function finishTranscodeJob(startedAtSeconds, attributes = {}) {
+  const kind = attributes.kind === 'hls' ? 'hls' : 'transcode';
+  if (kind === 'hls') {
+    _activeJobs.hls = Math.max(0, _activeJobs.hls - 1);
+  } else {
+    _activeJobs.transcode = Math.max(0, _activeJobs.transcode - 1);
+  }
+  const durationSeconds = elapsedSeconds(startedAtSeconds);
+  _otelMetrics?.transcodeDurationHistogram?.record(durationSeconds, attributes);
+}
+
+function recordPlaybackStartup(durationSeconds, attributes = {}) {
+  if (!Number.isFinite(durationSeconds) || durationSeconds < 0) return;
+  _otelMetrics?.playbackStartupHistogram?.record(durationSeconds, attributes);
+}
+
+function recordPlaybackMilestone(milestone, attributes = {}) {
+  if (!milestone) return;
+  _otelMetrics?.playbackMilestoneCounter?.add(1, { ...attributes, milestone: String(milestone) });
+}
+
+function recordScanDuration(durationSeconds, attributes = {}) {
+  if (!Number.isFinite(durationSeconds) || durationSeconds < 0) return;
+  _otelMetrics?.scanDurationHistogram?.record(durationSeconds, attributes);
+}
+
+function recordScanFiles(outcome, count = 1, attributes = {}) {
+  const safeCount = Number.isFinite(count) ? count : Number(count);
+  if (!Number.isFinite(safeCount) || safeCount <= 0) return;
+  _otelMetrics?.scanFilesCounter?.add(safeCount, { ...attributes, outcome: String(outcome || 'unknown') });
 }
 
 /** Start the periodic engagement metrics update interval. */
@@ -257,6 +428,14 @@ module.exports = {
   recordScanComplete,
   recordStreamBytes,
   recordStreamRequest,
+  recordPlaybackStartup,
+  recordPlaybackMilestone,
+  recordScanDuration,
+  recordScanFiles,
+  startThumbnailJob,
+  finishThumbnailJob,
+  startTranscodeJob,
+  finishTranscodeJob,
   getStats,
   getTracer,
 };

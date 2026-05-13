@@ -1,0 +1,509 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": "-- Grafana --",
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "gnetId": null,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [
+    {
+      "title": "OurTube",
+      "type": "dashboards",
+      "tags": [
+        "ourtube"
+      ],
+      "asDropdown": true,
+      "targetBlank": false
+    }
+  ],
+  "panels": [
+    {
+      "datasource": "Jaeger",
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 10,
+      "options": {
+        "showHeader": true
+      },
+      "pluginVersion": "8.0.0",
+      "targets": [
+        {
+          "limit": 20,
+          "queryType": "search",
+          "refId": "A",
+          "service": "ourtube"
+        }
+      ],
+      "title": "Recent Traces (Jaeger)",
+      "type": "table"
+    },
+    {
+      "datasource": "Jaeger",
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "id": 11,
+      "options": {
+        "showHeader": true
+      },
+      "pluginVersion": "8.0.0",
+      "targets": [
+        {
+          "limit": 20,
+          "queryType": "search",
+          "refId": "A",
+          "service": "ourtube",
+          "tags": "error=true"
+        }
+      ],
+      "title": "Recent Error Traces",
+      "type": "table"
+    },
+    {
+      "datasource": "Jaeger",
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "id": 12,
+      "options": {
+        "showHeader": true
+      },
+      "pluginVersion": "8.0.0",
+      "targets": [
+        {
+          "limit": 20,
+          "queryType": "search",
+          "refId": "A",
+          "service": "ourtube",
+          "minDuration": "250ms"
+        }
+      ],
+      "title": "Slow Traces (>= 250ms)",
+      "type": "table"
+    },
+    {
+      "datasource": null,
+      "gridPos": {
+        "h": 4,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      },
+      "id": 13,
+      "options": {
+        "content": "### Trace Links\n- Click any trace row in the Jaeger tables above to open that trace detail directly.\n- Stream traces use `http.route=/stream/:id`.\n- Admin traces use `http.route=/api/admin`.\n- Open Jaeger search directly: [Jaeger OurTube search](http://localhost:16686/search?service=ourtube)",
+        "mode": "markdown"
+      },
+      "pluginVersion": "8.0.0",
+      "title": "Trace Navigation",
+      "type": "text"
+    },
+    {
+      "datasource": "Jaeger",
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 20
+      },
+      "id": 14,
+      "options": {
+        "showHeader": true
+      },
+      "pluginVersion": "8.0.0",
+      "targets": [
+        {
+          "limit": 20,
+          "queryType": "search",
+          "refId": "A",
+          "service": "ourtube",
+          "tags": "http.route=/stream/:id"
+        }
+      ],
+      "title": "Stream Playback Traces",
+      "type": "table"
+    },
+    {
+      "datasource": "Jaeger",
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 20
+      },
+      "id": 15,
+      "options": {
+        "showHeader": true
+      },
+      "pluginVersion": "8.0.0",
+      "targets": [
+        {
+          "limit": 20,
+          "queryType": "search",
+          "refId": "A",
+          "service": "ourtube",
+          "tags": "http.route=/api/admin"
+        }
+      ],
+      "title": "Admin Route Traces",
+      "type": "table"
+    },
+    {
+      "datasource": "Jaeger",
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 28
+      },
+      "id": 16,
+      "options": {
+        "showHeader": true
+      },
+      "pluginVersion": "8.0.0",
+      "targets": [
+        {
+          "limit": 20,
+          "queryType": "search",
+          "refId": "A",
+          "service": "ourtube",
+          "tags": "http.route=/stream/:id/transcode"
+        }
+      ],
+      "title": "Stream Transcode Traces",
+      "type": "table"
+    },
+    {
+      "datasource": "Jaeger",
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 28
+      },
+      "id": 17,
+      "options": {
+        "showHeader": true
+      },
+      "pluginVersion": "8.0.0",
+      "targets": [
+        {
+          "limit": 20,
+          "queryType": "search",
+          "refId": "A",
+          "service": "ourtube",
+          "tags": "http.route=/api/admin/scan/all"
+        }
+      ],
+      "title": "Admin Scan-All Traces",
+      "type": "table"
+    },
+    {
+      "datasource": "Jaeger",
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 36
+      },
+      "id": 18,
+      "options": {
+        "showHeader": true
+      },
+      "pluginVersion": "8.0.0",
+      "targets": [
+        {
+          "limit": 20,
+          "queryType": "search",
+          "refId": "A",
+          "service": "ourtube",
+          "tags": "http.route=/api/admin/scan/status"
+        }
+      ],
+      "title": "Admin Scan-Status Traces",
+      "type": "table"
+    },
+    {
+      "datasource": "Jaeger",
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 44
+      },
+      "id": 23,
+      "options": {
+        "showHeader": true
+      },
+      "pluginVersion": "8.0.0",
+      "targets": [
+        {
+          "limit": 20,
+          "queryType": "search",
+          "refId": "A",
+          "service": "ourtube",
+          "tags": "error=true"
+        }
+      ],
+      "title": "Error Traces by Operation",
+      "type": "table"
+    },
+    {
+      "datasource": "Jaeger",
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 52
+      },
+      "id": 24,
+      "options": {
+        "showHeader": true
+      },
+      "pluginVersion": "8.0.0",
+      "targets": [
+        {
+          "limit": 20,
+          "queryType": "search",
+          "refId": "A",
+          "service": "ourtube",
+          "tags": "http.route=/stream/:id",
+          "minDuration": "250ms"
+        }
+      ],
+      "title": "Slow Stream Traces",
+      "type": "table"
+    },
+    {
+      "datasource": "Jaeger",
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 52
+      },
+      "id": 25,
+      "options": {
+        "showHeader": true
+      },
+      "pluginVersion": "8.0.0",
+      "targets": [
+        {
+          "limit": 20,
+          "queryType": "search",
+          "refId": "A",
+          "service": "ourtube",
+          "tags": "http.route=/api/admin",
+          "minDuration": "250ms"
+        }
+      ],
+      "title": "Slow Admin Traces",
+      "type": "table"
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 27,
+  "style": "dark",
+  "tags": [
+    "ourtube",
+    "metrics"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "",
+  "title": "OurTube Trace Details",
+  "uid": "ourtube-trace-details",
+  "version": 0
+}

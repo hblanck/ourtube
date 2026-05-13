@@ -118,6 +118,20 @@
           </div>
         </div>
 
+        <div class="admin-block-mb-8">
+          <div class="admin-toolbar-row-tight">
+            <div class="admin-small-caps-label admin-no-margin">Observability Overview</div>
+            <div class="admin-toolbar-row-tight">
+              <button type="button" class="btn btn-secondary btn-small" onclick="loadTelemetryInfo()">Refresh</button>
+            </div>
+          </div>
+          <div id="dashboard-telemetry-summary" class="system-summary-grid">
+            <div class="system-summary-card">
+              <div class="system-summary-label">Loading…</div>
+            </div>
+          </div>
+        </div>
+
         <h3 class="admin-section-subtitle">📊 Engagement Metrics</h3>
         <div class="admin-metrics-grid">
           <div class="admin-metric-card">
@@ -715,6 +729,40 @@
         ${renderSystemInfoRows(rows)}
       </section>`;
   }
+  function renderLinkPills(links) {
+    return (links || []).map(link => {
+      if (!link || !link.href || !link.label) return '';
+      return `<a class="btn btn-secondary btn-small" href="${escHtml(link.href)}" target="_blank" rel="noreferrer">${escHtml(link.label)}</a>`;
+    }).join(' ');
+  }
+  function renderTelemetrySummaryCards(telemetry) {
+    const activeJobs = telemetry?.activeJobs || {};
+    const guide = Array.isArray(telemetry?.signalGuide) ? telemetry.signalGuide : [];
+    const links = telemetry?.links || {};
+    const cards = [
+      renderSystemSummaryCard('Playback startup', telemetry?.capabilities?.playbackStartup ? 'Instrumented' : 'Unavailable', 'Startup latency now records time-to-first-byte for direct, transcode, and HLS playback.'),
+      renderSystemSummaryCard('Playback funnel', telemetry?.capabilities?.playbackMilestones ? '25 / 50 / 75 / 95 / done' : 'Unavailable', 'Milestones are emitted from playback progress updates so you can spot where sessions fall off.'),
+      renderSystemSummaryCard('Background jobs', fmtInteger((activeJobs.thumbnail || 0) + (activeJobs.transcode || 0) + (activeJobs.hls || 0)), `${fmtInteger(activeJobs.thumbnail || 0)} thumbs, ${fmtInteger(activeJobs.transcode || 0)} transcodes, ${fmtInteger(activeJobs.hls || 0)} HLS jobs`),
+      renderSystemSummaryCard('Trace drill-down', telemetry?.capabilities?.traceLinksAvailable ? 'Ready' : 'Limited', telemetry?.capabilities?.exemplarsConfigured ? 'Trace exemplars are enabled.' : 'Direct links are available now; exemplars are not configured in Prometheus/collector yet.'),
+    ];
+
+    if (guide.length) {
+      cards.push(`
+        <div class="system-summary-card" style="grid-column:1 / -1">
+          <div class="system-summary-label">What These Signals Mean</div>
+          <div class="system-summary-meta" style="margin-top:8px;display:grid;gap:8px;text-align:left">
+            ${guide.map(item => `<div><strong>${escHtml(item.label)}</strong>: ${escHtml(item.summary)} <span style="opacity:.75">(${escHtml(item.dashboard || 'dashboard')})</span></div>`).join('')}
+          </div>
+          <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">${renderLinkPills([
+            { label: 'Grafana', href: links.grafana },
+            { label: 'Prometheus', href: links.prometheus },
+            { label: 'Jaeger', href: links.jaeger },
+          ])}</div>
+        </div>`);
+    }
+
+    return cards.join('');
+  }
 
   async function adminFetch(url, options = {}) {
     const res = await fetch(url, options);
@@ -813,6 +861,7 @@
     pollActiveSessions();
     loadBlockedClients();
     loadSystemInfo();
+    loadTelemetryInfo();
     loadMetrics();
     loadTopVideos();
     loadTopUsers();
@@ -2241,11 +2290,13 @@
   // ── Telemetry ────────────────────────────────────────────
   async function loadTelemetryInfo() {
     const el = document.getElementById('telemetry-info');
+    const summaryEl = document.getElementById('dashboard-telemetry-summary');
     if (!el) return;
     try {
       const res = await adminFetch('/api/admin/telemetry');
       if (!res.ok) throw new Error(`${res.status}`);
       const t = await res.json();
+      if (summaryEl) summaryEl.innerHTML = renderTelemetrySummaryCards(t);
       el.innerHTML = renderSystemInfoCard('OpenTelemetry', [
         ['Status', t.enabled ? '✅ Enabled' : '⬜ Disabled (set OTEL_EXPORTER_OTLP_ENDPOINT to enable)'],
         ['OTLP Endpoint', t.otlpEndpoint || '—'],
@@ -2254,8 +2305,33 @@
         ['Stream Requests', fmtInteger(t.counters?.streamRequests)],
         ['Bytes Streamed', fmtSize(t.counters?.bytesStreamed)],
         ['Scans Run', fmtInteger(t.counters?.scansRun)],
+        ['Active jobs', `${fmtInteger(t.activeJobs?.thumbnail || 0)} thumbs / ${fmtInteger(t.activeJobs?.transcode || 0)} transcodes / ${fmtInteger(t.activeJobs?.hls || 0)} HLS`],
+        ['Playback startup metric', t.capabilities?.playbackStartup ? 'Enabled' : 'Unavailable'],
+        ['Playback milestones', t.capabilities?.playbackMilestones ? 'Enabled' : 'Unavailable'],
+        ['Scan freshness metric', t.capabilities?.scanFreshness ? 'Enabled' : 'Unavailable'],
+        ['Trace drill-down', t.capabilities?.traceLinksAvailable ? 'Jaeger + Grafana links available' : 'Unavailable'],
+        ['Exemplars', t.capabilities?.exemplarsConfigured ? 'Configured' : 'Not configured yet'],
       ]);
+      el.innerHTML += `
+        <section class="system-info-card">
+          <div class="system-info-card-title">Observability Links</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">${renderLinkPills([
+            { label: 'Open Grafana', href: t.links?.grafana },
+            { label: 'Open Prometheus', href: t.links?.prometheus },
+            { label: 'Open Jaeger', href: t.links?.jaeger },
+            { label: 'Metrics Dashboard', href: t.links?.grafana ? `${t.links.grafana}/d/ourtube-metrics` : '' },
+            { label: 'Trace Dashboard', href: t.links?.grafana ? `${t.links.grafana}/d/ourtube-trace-details` : '' },
+          ])}</div>
+        </section>`;
     } catch {
+      if (summaryEl) {
+        summaryEl.innerHTML = `
+          <div class="system-summary-card">
+            <div class="system-summary-label">Observability Overview</div>
+            <div class="system-summary-value">Unavailable</div>
+            <div class="system-summary-meta">Failed to load telemetry information.</div>
+          </div>`;
+      }
       el.innerHTML = '<div class="system-info-card"><div class="system-info-empty">Failed to load telemetry info.</div></div>';
     }
   }

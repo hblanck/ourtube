@@ -292,6 +292,12 @@ function disposeHlsJob(mediaId, reason) {
     // Ignore shutdown race.
   }
 
+  telemetry.finishTranscodeJob(job.telemetryStartedAt, {
+    kind: 'hls',
+    mode: 'virtual_hls',
+    status: reason === 'ffmpeg-error' ? 'error' : 'ok',
+  });
+
   cleanupFile(job.concatListPath);
   try {
     if (job.dir && fs.existsSync(job.dir)) {
@@ -350,6 +356,7 @@ function ensureVirtualHlsJob(mediaId, req) {
     cmd: null,
     stopped: false,
     lastAccess: Date.now(),
+    telemetryStartedAt: telemetry.startTranscodeJob('hls'),
   };
 
   const cmd = ffmpeg()
@@ -438,7 +445,15 @@ router.get('/:id/hls/:segment', async (req, res) => {
 
   res.setHeader('Content-Type', 'video/mp2t');
   res.setHeader('Cache-Control', 'no-store');
-  fs.createReadStream(segmentPath).pipe(res);
+  const requestStartedAt = Date.now();
+  let recordedStartup = false;
+  const segmentStream = fs.createReadStream(segmentPath);
+  segmentStream.on('data', () => {
+    if (recordedStartup) return;
+    recordedStartup = true;
+    telemetry.recordPlaybackStartup((Date.now() - requestStartedAt) / 1000, { mode: 'hls_segment' });
+  });
+  segmentStream.pipe(res);
 });
 
 // GET /stream/:id/transcode - browser-compatible MP4 fallback stream
@@ -453,6 +468,7 @@ router.get('/:id/transcode', (req, res) => {
     `[stream] transcode request id=${req.params.id} virtual=${virtualSegments ? '1' : '0'} start=${startSeconds} range=${req.headers.range || 'none'} ip=${clientIp} ua=${ua}`
   );
   telemetry.recordStreamRequest();
+  const requestStartedAt = Date.now();
 
   if (virtualSegments) {
     // Safety guard: virtual transcode requests from stale listing-page preview code
@@ -511,7 +527,19 @@ router.get('/:id/transcode', (req, res) => {
     let transcodeStopped = false;
     let cleanedUp = false;
     let bytesSent = 0;
+    let finishedTelemetry = false;
+    let recordedStartup = false;
+    const transcodeStartedAt = telemetry.startTranscodeJob('transcode');
     const diag = createFfmpegDiagnostics(`virtual ${req.params.id}`);
+    const finishTranscodeTelemetry = (status) => {
+      if (finishedTelemetry) return;
+      finishedTelemetry = true;
+      telemetry.finishTranscodeJob(transcodeStartedAt, {
+        kind: 'transcode',
+        mode: 'virtual_transcode',
+        status,
+      });
+    };
     const cleanup = () => {
       if (cleanedUp) return;
       cleanedUp = true;
@@ -529,6 +557,7 @@ router.get('/:id/transcode', (req, res) => {
       .on('stderr', line => diag.onStderr(line))
       .on('end', () => cleanup())
       .on('error', err => {
+        finishTranscodeTelemetry('error');
         cleanup();
         if (transcodeStopped && isIntentionalKillError(err)) return;
         diag.logErrorContext(err);
@@ -546,6 +575,10 @@ router.get('/:id/transcode', (req, res) => {
 
     const pass = new PassThrough();
     pass.on('data', chunk => {
+      if (!recordedStartup) {
+        recordedStartup = true;
+        telemetry.recordPlaybackStartup((Date.now() - requestStartedAt) / 1000, { mode: 'virtual_transcode' });
+      }
       bytesSent += chunk.length;
       addBytes(sessionId, chunk.length);
       telemetry.recordStreamBytes(chunk.length);
@@ -554,6 +587,7 @@ router.get('/:id/transcode', (req, res) => {
     const stopTranscode = () => {
       if (transcodeStopped) return;
       transcodeStopped = true;
+      finishTranscodeTelemetry('aborted');
       touchSession(sessionId);
       cleanup();
       try { cmd.kill('SIGKILL'); } catch { /* ignore */ }
@@ -570,6 +604,7 @@ router.get('/:id/transcode', (req, res) => {
     });
 
     res.on('finish', () => {
+      finishTranscodeTelemetry('ok');
       touchSession(sessionId);
       cleanup();
       console.info(`[stream] virtual transcode finish id=${req.params.id} bytes=${bytesSent}`);
@@ -610,7 +645,19 @@ router.get('/:id/transcode', (req, res) => {
 
   let transcodeStopped = false;
   let bytesSent = 0;
+  let finishedTelemetry = false;
+  let recordedStartup = false;
+  const transcodeStartedAt = telemetry.startTranscodeJob('transcode');
   const diag = createFfmpegDiagnostics(`media ${row.id}`);
+  const finishTranscodeTelemetry = (status) => {
+    if (finishedTelemetry) return;
+    finishedTelemetry = true;
+    telemetry.finishTranscodeJob(transcodeStartedAt, {
+      kind: 'transcode',
+      mode: 'direct_transcode',
+      status,
+    });
+  };
 
   const cmd = ffmpeg(filePath)
     .videoCodec('libx264')
@@ -620,6 +667,7 @@ router.get('/:id/transcode', (req, res) => {
     .on('start', commandLine => diag.onStart(commandLine))
     .on('stderr', line => diag.onStderr(line))
     .on('error', err => {
+      finishTranscodeTelemetry('error');
       if (transcodeStopped && isIntentionalKillError(err)) return;
       diag.logErrorContext(err);
       if (!res.headersSent) {
@@ -636,6 +684,10 @@ router.get('/:id/transcode', (req, res) => {
 
   const pass = new PassThrough();
   pass.on('data', chunk => {
+    if (!recordedStartup) {
+      recordedStartup = true;
+      telemetry.recordPlaybackStartup((Date.now() - requestStartedAt) / 1000, { mode: 'direct_transcode' });
+    }
     bytesSent += chunk.length;
     addBytes(sessionId, chunk.length);
     telemetry.recordStreamBytes(chunk.length);
@@ -644,6 +696,7 @@ router.get('/:id/transcode', (req, res) => {
   const stopTranscode = () => {
     if (transcodeStopped) return;
     transcodeStopped = true;
+    finishTranscodeTelemetry('aborted');
     touchSession(sessionId);
     try { cmd.kill('SIGKILL'); } catch { /* ignore */ }
   };
@@ -658,6 +711,7 @@ router.get('/:id/transcode', (req, res) => {
   });
 
   res.on('finish', () => {
+    finishTranscodeTelemetry('ok');
     touchSession(sessionId);
     console.info(`[stream] transcode finish id=${row.id} bytes=${bytesSent}`);
   });
@@ -670,6 +724,7 @@ router.get('/:id/transcode', (req, res) => {
 router.get('/:id', (req, res) => {
   if (checkClientBlocked(req, res)) return;
   telemetry.recordStreamRequest();
+  const requestStartedAt = Date.now();
   const db = getDb();
   if (isVirtualMediaId(req.params.id)) {
     return res.status(400).json({ error: 'Virtual videos require compatibility streaming' });
@@ -714,8 +769,13 @@ router.get('/:id', (req, res) => {
       'Content-Type': mimeType
     });
 
+    let recordedStartup = false;
     const fileStream = fs.createReadStream(filePath, { start, end });
     fileStream.on('data', chunk => {
+      if (!recordedStartup) {
+        recordedStartup = true;
+        telemetry.recordPlaybackStartup((Date.now() - requestStartedAt) / 1000, { mode: 'direct_range' });
+      }
       addBytes(sessionId, chunk.length);
       telemetry.recordStreamBytes(chunk.length);
     });
@@ -726,8 +786,13 @@ router.get('/:id', (req, res) => {
       'Content-Type': mimeType,
       'Accept-Ranges': 'bytes'
     });
+    let recordedStartup = false;
     const fileStream = fs.createReadStream(filePath);
     fileStream.on('data', chunk => {
+      if (!recordedStartup) {
+        recordedStartup = true;
+        telemetry.recordPlaybackStartup((Date.now() - requestStartedAt) / 1000, { mode: 'direct_full' });
+      }
       addBytes(sessionId, chunk.length);
       telemetry.recordStreamBytes(chunk.length);
     });
