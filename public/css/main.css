@@ -133,6 +133,30 @@ a { color: inherit; text-decoration: none; }
   background: #2a3543;
 }
 
+.header-bookmarks-nav {
+  display: flex;
+  align-items: center;
+}
+
+.header-bookmarks-select {
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 13px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  max-width: 200px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.header-bookmarks-select:focus {
+  outline: none;
+  border-color: #aaa;
+}
+
 .nav-link-button {
   border: none;
   background: transparent;
@@ -1367,7 +1391,7 @@ a { color: inherit; text-decoration: none; }
 
 .related-thumb-menu-btn {
   position: absolute;
-  top: 4px;
+  bottom: 4px;
   right: 4px;
   width: 24px;
   height: 24px;
@@ -1389,7 +1413,7 @@ a { color: inherit; text-decoration: none; }
 
 .related-thumb-menu {
   position: absolute;
-  top: 30px;
+  bottom: 30px;
   right: 4px;
   background: var(--surface);
   border: 1px solid var(--border);

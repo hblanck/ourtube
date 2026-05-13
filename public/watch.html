@@ -18,6 +18,11 @@
         <button type="submit" class="search-btn">🔍</button>
       </form>
       <nav class="header-nav">
+        <div id="header-bookmarks-nav" class="header-bookmarks-nav" style="display:none">
+          <select id="header-bookmarks-select" class="header-bookmarks-select" aria-label="Jump to bookmark">
+            <option value="">🔖 Bookmarks</option>
+          </select>
+        </div>
         <a href="/" class="nav-link">🎬 Videos</a>
         <a href="/photos.html" class="nav-link">📷 Photos</a>
       </nav>
@@ -80,7 +85,7 @@
               data-open-bookmark-dialog="1"
               title="Add bookmark"
               aria-label="Add bookmark"
-            >+</button>
+            >🔖</button>
             <button
               id="share-video-btn"
               class="btn btn-secondary btn-small watch-action-icon-btn"
@@ -126,6 +131,7 @@
 
         <section id="comments-section" class="watch-social-section" style="display:none">
           <h3 class="watch-social-title">💬 Comments</h3>
+          <div id="comments-list" class="watch-social-list"></div>
           <form id="comment-form" class="watch-social-form">
             <div class="watch-social-form-row">
               <input type="text" name="author_name" class="form-input" maxlength="60" placeholder="Your name (optional)" />
@@ -133,7 +139,6 @@
             <textarea name="comment_text" class="form-textarea" maxlength="2000" placeholder="Add a comment" required></textarea>
             <button type="submit" class="btn btn-primary btn-small">Post Comment</button>
           </form>
-          <div id="comments-list" class="watch-social-list"></div>
         </section>
       </div>
     </div>
@@ -149,7 +154,7 @@
             data-open-bookmark-dialog="1"
             title="Add bookmark"
             aria-label="Add bookmark"
-          >+</button>
+          >🔖</button>
         </div>
         <div id="bookmarks-list" class="watch-social-list"></div>
       </section>

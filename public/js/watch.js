@@ -1038,7 +1038,58 @@
     bindShareVideoButton();
   }
 
-  function renderBookmarks(items = []) {
+  function updateHeaderBookmarksDropdown(items, media) {
+    const nav = document.getElementById('header-bookmarks-nav');
+    const select = document.getElementById('header-bookmarks-select');
+    if (!nav || !select) return;
+
+    if (!items || !items.length) {
+      nav.style.display = 'none';
+      return;
+    }
+
+    nav.style.display = '';
+
+    // Reset to placeholder only
+    while (select.options.length > 1) select.remove(1);
+
+    items.forEach(item => {
+      const time = Math.max(0, Number(item.time_seconds) || 0);
+
+      // For stitched videos, label with segment (clip) name
+      let clipName = '';
+      if (stitchedSegmentTimeline.length) {
+        const seg = getCurrentStitchedSegment(time);
+        if (seg) clipName = seg.label;
+      }
+      if (!clipName && media) {
+        clipName = media.friendly_name || media.file_name || '';
+      }
+
+      const bookmarkLabel = item.title || fmtDur(time);
+      const label = clipName ? `${clipName} \u2013 ${bookmarkLabel}` : bookmarkLabel;
+
+      const opt = document.createElement('option');
+      opt.value = String(item.id);
+      opt.textContent = label;
+      opt.dataset.timeSeconds = String(time);
+      select.appendChild(opt);
+    });
+
+    if (select.dataset.bound !== '1') {
+      select.addEventListener('change', () => {
+        const opt = select.options[select.selectedIndex];
+        if (!opt || !opt.value) return;
+        const seconds = Number(opt.dataset.timeSeconds);
+        if (Number.isFinite(seconds)) seekToVideoTime(seconds);
+        // Reset to placeholder after navigation
+        select.value = '';
+      });
+      select.dataset.bound = '1';
+    }
+  }
+
+
     const section = document.getElementById('bookmarks-section');
     const list = document.getElementById('bookmarks-list');
     if (!section || !list) return;
@@ -1094,6 +1145,7 @@
       const data = await res.json();
       const items = Array.isArray(data.items) ? data.items : [];
       renderBookmarks(items);
+      updateHeaderBookmarksDropdown(items, media);
 
       if (Number.isInteger(bookmarkQueryId) && bookmarkQueryId > 0) {
         const selected = items.find(item => Number(item.id) === bookmarkQueryId);
