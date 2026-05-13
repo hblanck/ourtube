@@ -18,6 +18,7 @@ const {
   VISIBILITY_NONE,
 } = require('../visibility');
 const { isAdminAuthenticated } = require('../admin-auth');
+const telemetry = require('../telemetry');
 
 const router = express.Router();
 
@@ -81,6 +82,17 @@ function attachPlaybackProgress(items, req, db) {
   }
 
   return items;
+}
+
+function milestonesForPercent(percent, completed) {
+  const out = [];
+  const safePercent = Math.max(0, Math.min(100, Number(percent) || 0));
+  if (safePercent >= 25) out.push('25');
+  if (safePercent >= 50) out.push('50');
+  if (safePercent >= 75) out.push('75');
+  if (safePercent >= 95 || completed) out.push('95');
+  if (completed) out.push('completed');
+  return out;
 }
 
 // GET /api/ui-settings
@@ -388,6 +400,12 @@ router.put('/playback-progress/:id', (req, res) => {
   const positionSeconds = Math.max(0, rawPosition);
   const durationSeconds = Number.isFinite(rawDuration) && rawDuration >= 0 ? rawDuration : null;
 
+  const prev = db.prepare(
+    `SELECT position_seconds, duration_seconds, completed
+       FROM playback_progress
+      WHERE playback_session_id = ? AND media_id = ?`
+  ).get(playbackSessionId, req.params.id);
+
   db.prepare(
     `INSERT INTO playback_progress
       (playback_session_id, media_id, position_seconds, duration_seconds, completed, updated_at)
@@ -399,6 +417,28 @@ router.put('/playback-progress/:id', (req, res) => {
        completed = excluded.completed,
        updated_at = datetime('now')`
   ).run(playbackSessionId, req.params.id, positionSeconds, durationSeconds, completed);
+
+  const prevDuration = Number(prev?.duration_seconds);
+  const prevEffectiveDuration = Number.isFinite(prevDuration) && prevDuration > 0
+    ? prevDuration
+    : (durationSeconds || 0);
+  const prevPercent = prev?.completed
+    ? 100
+    : (prevEffectiveDuration > 0 ? ((Number(prev?.position_seconds) || 0) / prevEffectiveDuration) * 100 : 0);
+  const nextEffectiveDuration = durationSeconds || prevEffectiveDuration;
+  const nextPercent = completed
+    ? 100
+    : (nextEffectiveDuration > 0 ? (positionSeconds / nextEffectiveDuration) * 100 : 0);
+
+  const prevMilestones = new Set(milestonesForPercent(prevPercent, !!prev?.completed));
+  const nextMilestones = milestonesForPercent(nextPercent, !!completed);
+  for (const milestone of nextMilestones) {
+    if (prevMilestones.has(milestone)) continue;
+    telemetry.recordPlaybackMilestone(milestone, {
+      media_type: String(req.body?.media_type || 'video'),
+      source: 'playback_progress',
+    });
+  }
 
   res.json({ ok: true });
 });
