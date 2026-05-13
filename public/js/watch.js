@@ -3,6 +3,7 @@
 (function () {
   const params = new URLSearchParams(location.search);
   const mediaId = params.get('id');
+  const bookmarkQueryId = Number.parseInt(params.get('bookmark') || '', 10);
 
   if (!mediaId) {
     document.querySelector('.watch-main').innerHTML =
@@ -34,6 +35,7 @@
   let lastProgressSavedPosition = 0;
   let progressSaveInFlight = false;
   let latestProgressSavePromise = Promise.resolve();
+  let externalBaseUrl = '';
 
   const CLIP_WATERMARK_STORAGE_KEY = 'watch_stitched_clip_watermark';
   const CLIP_WATERMARK_MODE_STORAGE_KEY = 'watch_stitched_clip_watermark_mode';
@@ -68,6 +70,134 @@
   function fmtDate(str) {
     if (!str) return '';
     try { return new Date(str).toLocaleDateString(); } catch { return str; }
+  }
+
+  function normalizeExternalBaseUrl(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    let parsed;
+    try {
+      parsed = new URL(raw);
+    } catch {
+      return '';
+    }
+
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return '';
+    const normalizedPath = parsed.pathname.replace(/\/+$/g, '');
+    return `${parsed.origin}${normalizedPath}${parsed.search}${parsed.hash}`;
+  }
+
+  async function loadUiSettings() {
+    try {
+      const res = await fetch('/api/ui-settings', { credentials: 'same-origin' });
+      if (!res.ok) return;
+      const data = await res.json();
+      externalBaseUrl = normalizeExternalBaseUrl(data?.external_base_url);
+    } catch {
+      externalBaseUrl = '';
+    }
+  }
+
+  function buildWatchUrl(bookmarkId = null, targetMediaId = mediaId) {
+    const origin = externalBaseUrl || window.location.origin;
+    const qs = new URLSearchParams({ id: String(targetMediaId || mediaId) });
+    if (Number.isInteger(bookmarkId) && bookmarkId > 0) qs.set('bookmark', String(bookmarkId));
+    return `${origin}/watch.html?${qs.toString()}`;
+  }
+
+  async function copyTextToClipboard(text) {
+    const content = String(text || '');
+    if (!content) return false;
+
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(content);
+        return true;
+      } catch {
+        // Fallback below.
+      }
+    }
+
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = content;
+      ta.setAttribute('readonly', 'readonly');
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      return !!ok;
+    } catch {
+      return false;
+    }
+  }
+
+  function showWatchActionMessage(text) {
+    const msg = document.getElementById('share-video-msg');
+    if (!msg) return;
+    msg.textContent = text || '';
+    if (!text) return;
+    setTimeout(() => {
+      if (msg.textContent === text) msg.textContent = '';
+    }, 2500);
+  }
+
+  function seekToVideoTime(targetSeconds, { autoplay = true } = {}) {
+    if (!player || !currentMedia || currentMedia.type !== 'video') return;
+    const seekTarget = Math.max(0, Number(targetSeconds) || 0);
+
+    if (stitchedPlayback && compatibilityMode && compatibilityTransport === 'transcode') {
+      seekStitchedPlayback(seekTarget);
+    } else {
+      try {
+        player.currentTime(seekTarget);
+      } catch {
+        player.one('loadedmetadata', () => {
+          try { player.currentTime(seekTarget); } catch { /* ignore */ }
+        });
+      }
+    }
+
+    if (autoplay) player.play().catch(() => {});
+  }
+
+  function bindShareVideoButton() {
+    const wrap = document.getElementById('watch-actions');
+    const btn = document.getElementById('share-video-btn');
+    if (!wrap || !btn) return;
+    if (!currentMedia || currentMedia.type !== 'video') {
+      wrap.style.display = 'none';
+      return;
+    }
+
+    wrap.style.display = 'flex';
+    if (btn.dataset.bound === '1') return;
+
+    btn.addEventListener('click', async () => {
+      const ok = await copyTextToClipboard(buildWatchUrl());
+      showWatchActionMessage(ok ? 'Video link copied to clipboard' : 'Unable to copy link');
+    });
+    btn.dataset.bound = '1';
+  }
+
+  function closeBookmarkDialog() {
+    const modal = document.getElementById('bookmark-modal');
+    if (modal) modal.classList.remove('open');
+  }
+
+  function openBookmarkDialog() {
+    if (!currentMedia || currentMedia.type !== 'video') return;
+    const modal = document.getElementById('bookmark-modal');
+    const form = document.getElementById('bookmark-dialog-form');
+    const currentTime = document.getElementById('bookmark-dialog-time');
+    if (!modal || !form || !currentTime) return;
+
+    currentTime.textContent = fmtDur(Math.max(0, Number(getTimelineCurrentTime()) || 0));
+    modal.classList.add('open');
+    const title = form.querySelector('[name="title"]');
+    if (title) title.focus();
   }
 
   function getCurrentDurationSeconds() {
@@ -905,11 +1035,341 @@
         ).join('')}</div>`;
     }
 
+    bindShareVideoButton();
+  }
+
+  function updateHeaderBookmarksDropdown(items, media) {
+    const nav = document.getElementById('header-bookmarks-nav');
+    const select = document.getElementById('header-bookmarks-select');
+    if (!nav || !select) return;
+
+    if (!items || !items.length) {
+      nav.style.display = 'none';
+      return;
+    }
+
+    nav.style.display = '';
+
+    // Reset to placeholder only
+    while (select.options.length > 1) select.remove(1);
+
+    items.forEach(item => {
+      const time = Math.max(0, Number(item.time_seconds) || 0);
+
+      // For stitched videos, label with segment (clip) name
+      let clipName = '';
+      if (stitchedSegmentTimeline.length) {
+        const seg = getCurrentStitchedSegment(time);
+        if (seg) clipName = seg.label;
+      }
+      if (!clipName && media) {
+        clipName = media.friendly_name || media.file_name || '';
+      }
+
+      const bookmarkLabel = item.title || fmtDur(time);
+      const label = clipName ? `${clipName} \u2013 ${bookmarkLabel}` : bookmarkLabel;
+
+      const opt = document.createElement('option');
+      opt.value = String(item.id);
+      opt.textContent = label;
+      opt.dataset.timeSeconds = String(time);
+      select.appendChild(opt);
+    });
+
+    if (select.dataset.bound !== '1') {
+      select.addEventListener('change', () => {
+        const opt = select.options[select.selectedIndex];
+        if (!opt || !opt.value) return;
+        const seconds = Number(opt.dataset.timeSeconds);
+        if (Number.isFinite(seconds)) seekToVideoTime(seconds);
+        // Reset to placeholder after navigation
+        select.value = '';
+      });
+      select.dataset.bound = '1';
+    }
+  }
+
+  function renderBookmarks(items = []) {
+    const section = document.getElementById('bookmarks-section');
+    const list = document.getElementById('bookmarks-list');
+    if (!section || !list) return;
+
+    if (!currentMedia || currentMedia.type !== 'video') {
+      section.style.display = 'none';
+      return;
+    }
+
+    section.style.display = '';
+    if (!items.length) {
+      list.innerHTML = '<p class="watch-social-empty">No bookmarks yet.</p>';
+      return;
+    }
+
+    list.innerHTML = items.map(item => {
+      const timeLabel = fmtDur(Math.max(0, Number(item.time_seconds) || 0));
+      const title = item.title ? `<div class="watch-social-item-title">${escHtml(item.title)}</div>` : '';
+      const annotation = item.annotation ? `<div class="watch-social-item-body">${escHtml(item.annotation)}</div>` : '';
+      const tags = Array.isArray(item.tags) && item.tags.length
+        ? `<div class="watch-social-tags">${item.tags.map(tag => `<span class="tag-pill">${escHtml(tag)}</span>`).join('')}</div>`
+        : '';
+
+      return `
+        <article class="watch-social-item">
+          <div class="watch-social-item-top">
+            <button class="btn btn-secondary btn-small" type="button" data-bookmark-jump="${item.time_seconds}">⏯ ${timeLabel}</button>
+            <div class="watch-social-item-actions">
+              <button class="btn btn-secondary btn-small" type="button" data-bookmark-share="${item.id}">🔗 Share</button>
+            </div>
+          </div>
+          ${title}
+          ${annotation}
+          ${tags}
+        </article>`;
+    }).join('');
+  }
+
+  async function loadBookmarks(media) {
+    const section = document.getElementById('bookmarks-section');
+    const list = document.getElementById('bookmarks-list');
+    if (!section || !list) return [];
+
+    if (!media || media.type !== 'video') {
+      section.style.display = 'none';
+      return [];
+    }
+
+    section.style.display = '';
+    try {
+      const res = await fetch(`/api/media/${encodeURIComponent(media.id)}/bookmarks`);
+      if (!res.ok) throw new Error('Failed to load bookmarks');
+      const data = await res.json();
+      const items = Array.isArray(data.items) ? data.items : [];
+      renderBookmarks(items);
+      updateHeaderBookmarksDropdown(items, media);
+
+      if (Number.isInteger(bookmarkQueryId) && bookmarkQueryId > 0) {
+        const selected = items.find(item => Number(item.id) === bookmarkQueryId);
+        if (selected) {
+          seekToVideoTime(selected.time_seconds, { autoplay: false });
+          showWatchActionMessage(`Navigated to bookmark at ${fmtDur(Math.max(0, Number(selected.time_seconds) || 0))}`);
+        }
+      }
+
+      return items;
+    } catch {
+      list.innerHTML = '<p class="watch-social-empty">Unable to load bookmarks.</p>';
+      return [];
+    }
+  }
+
+  function bindBookmarkActions() {
+    const list = document.getElementById('bookmarks-list');
+    if (!list) return;
+
+    if (list.dataset.bound !== '1') {
+      list.addEventListener('click', async event => {
+        const jumpTarget = event.target.closest('[data-bookmark-jump]');
+        if (jumpTarget) {
+          const seconds = Number(jumpTarget.getAttribute('data-bookmark-jump'));
+          if (Number.isFinite(seconds)) seekToVideoTime(seconds);
+          return;
+        }
+
+        const shareTarget = event.target.closest('[data-bookmark-share]');
+        if (shareTarget) {
+          const bookmarkId = Number.parseInt(shareTarget.getAttribute('data-bookmark-share') || '', 10);
+          const ok = await copyTextToClipboard(buildWatchUrl(bookmarkId));
+          showWatchActionMessage(ok ? 'Bookmark link copied to clipboard' : 'Unable to copy link');
+        }
+      });
+      list.dataset.bound = '1';
+    }
+  }
+
+  function bindBookmarkDialog() {
+    const closeBtn = document.getElementById('bookmark-dialog-close');
+    const cancelBtn = document.getElementById('bookmark-dialog-cancel');
+    const modal = document.getElementById('bookmark-modal');
+    const form = document.getElementById('bookmark-dialog-form');
+    const openBtns = Array.from(document.querySelectorAll('[data-open-bookmark-dialog]'));
+    if (!openBtns.length || !modal || !form) return;
+
+    openBtns.forEach(btn => {
+      if (btn.dataset.bound === '1') return;
+      btn.addEventListener('click', openBookmarkDialog);
+      btn.dataset.bound = '1';
+    });
+
+    if (closeBtn && closeBtn.dataset.bound !== '1') {
+      closeBtn.addEventListener('click', closeBookmarkDialog);
+      closeBtn.dataset.bound = '1';
+    }
+
+    if (cancelBtn && cancelBtn.dataset.bound !== '1') {
+      cancelBtn.addEventListener('click', closeBookmarkDialog);
+      cancelBtn.dataset.bound = '1';
+    }
+
+    if (modal.dataset.bound !== '1') {
+      modal.addEventListener('click', event => {
+        if (event.target === modal) closeBookmarkDialog();
+      });
+      modal.dataset.bound = '1';
+    }
+
+    if (form.dataset.bound === '1') return;
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      if (!currentMedia || currentMedia.type !== 'video') return;
+
+      const formData = new FormData(form);
+      const title = String(formData.get('title') || '').trim();
+      const annotation = String(formData.get('annotation') || '').trim();
+      const tags = String(formData.get('tags') || '')
+        .split(',')
+        .map(tag => tag.trim())
+        .filter(Boolean);
+
+      const timeSeconds = Math.max(0, Number(getTimelineCurrentTime()) || 0);
+      const res = await fetch(`/api/media/${encodeURIComponent(currentMedia.id)}/bookmarks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          time_seconds: timeSeconds,
+          title,
+          annotation,
+          tags,
+        }),
+      });
+
+      if (!res.ok) {
+        showWatchActionMessage('Failed to save bookmark');
+        return;
+      }
+
+      form.reset();
+      closeBookmarkDialog();
+      showWatchActionMessage('Bookmark saved');
+      await loadBookmarks(currentMedia);
+    });
+    form.dataset.bound = '1';
+  }
+
+  function renderComments(items = []) {
+    const section = document.getElementById('comments-section');
+    const list = document.getElementById('comments-list');
+    if (!section || !list) return;
+
+    if (!currentMedia || currentMedia.type !== 'video') {
+      section.style.display = 'none';
+      return;
+    }
+
+    section.style.display = '';
+    if (!items.length) {
+      list.innerHTML = '<p class="watch-social-empty">No comments yet.</p>';
+      return;
+    }
+
+    list.innerHTML = items.map(item => `
+      <article class="watch-social-item">
+        <div class="watch-social-item-meta">
+          <strong>${escHtml(item.author_name || 'Anonymous')}</strong>
+          <span>${fmtDate(item.created_at)}</span>
+        </div>
+        <div class="watch-social-item-body">${escHtml(item.comment_text || '')}</div>
+      </article>
+    `).join('');
+  }
+
+  async function loadComments(media) {
+    const section = document.getElementById('comments-section');
+    const list = document.getElementById('comments-list');
+    if (!section || !list) return;
+
+    if (!media || media.type !== 'video') {
+      section.style.display = 'none';
+      return;
+    }
+
+    section.style.display = '';
+    try {
+      const res = await fetch(`/api/media/${encodeURIComponent(media.id)}/comments`);
+      if (!res.ok) throw new Error('Failed to load comments');
+      const data = await res.json();
+      renderComments(Array.isArray(data.items) ? data.items : []);
+    } catch {
+      list.innerHTML = '<p class="watch-social-empty">Unable to load comments.</p>';
+    }
+  }
+
+  function bindCommentForm() {
+    const form = document.getElementById('comment-form');
+    if (!form || form.dataset.bound === '1') return;
+
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      if (!currentMedia || currentMedia.type !== 'video') return;
+
+      const formData = new FormData(form);
+      const authorName = String(formData.get('author_name') || '').trim();
+      const commentText = String(formData.get('comment_text') || '').trim();
+      if (!commentText) return;
+
+      const res = await fetch(`/api/media/${encodeURIComponent(currentMedia.id)}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          author_name: authorName,
+          comment_text: commentText,
+        }),
+      });
+      if (!res.ok) {
+        showWatchActionMessage('Failed to post comment');
+        return;
+      }
+
+      form.reset();
+      showWatchActionMessage('Comment posted');
+      await loadComments(currentMedia);
+    });
+
+    form.dataset.bound = '1';
   }
 
   async function loadRelated(media) {
     const grid = document.getElementById('related-grid');
     if (!grid) return;
+    grid.innerHTML = '';
+
+    if (grid.dataset.shareBound !== '1') {
+      grid.addEventListener('click', async event => {
+        const shareItem = event.target.closest('[data-related-share-id]');
+        if (shareItem) {
+          event.preventDefault();
+          event.stopPropagation();
+          const targetId = String(shareItem.getAttribute('data-related-share-id') || '').trim();
+          if (!targetId) return;
+          const ok = await copyTextToClipboard(buildWatchUrl(null, targetId));
+          showWatchActionMessage(ok ? 'Video link copied to clipboard' : 'Unable to copy link');
+          return;
+        }
+
+        const linkCard = event.target.closest('.related-card[data-related-href]');
+        if (linkCard) {
+          window.location.href = linkCard.dataset.relatedHref || linkCard.getAttribute('data-related-href') || '';
+          return;
+        }
+      });
+      grid.addEventListener('keydown', event => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        const linkCard = event.target.closest('.related-card[data-related-href]');
+        if (!linkCard) return;
+        event.preventDefault();
+        window.location.href = linkCard.dataset.relatedHref || linkCard.getAttribute('data-related-href') || '';
+      });
+      grid.dataset.shareBound = '1';
+    }
 
     try {
       const params = new URLSearchParams({ limit: 12, sort: 'indexed_at', order: 'DESC', type: media.type });
@@ -918,20 +1378,24 @@
 
       const others = data.items.filter(m => m.id !== mediaId).slice(0, 8);
       others.forEach(item => {
-        const card = document.createElement('a');
-        card.href = `/watch.html?id=${item.id}`;
+        const cardHref = `/watch.html?id=${item.id}`;
+        const card = document.createElement('div');
         card.className = 'related-card';
+        card.dataset.relatedHref = cardHref;
+        card.tabIndex = 0;
+        card.setAttribute('role', 'link');
         const thumb = `/thumbnail/${item.thumbnail_media_id || item.id}`;
         card.innerHTML = `
           <div class="related-thumb-wrap">
-            <img class="related-thumb" src="${thumb}" alt="${escHtml(item.friendly_name || item.file_name)}"
-                 loading="lazy" onerror="this.src='/img/no-thumb.svg'" />
-            ${item.duration ? `<span class="related-duration">${fmtDur(item.duration)}</span>` : ''}
-            ${item.is_virtual ? '<span class="related-badge">Stitched</span>' : ''}
-            ${adminModeEnabled && (item.visibility === 'admin' || item.source_visibility === 'admin') ? '<span class="related-badge related-badge-admin-only">Admin Only</span>' : ''}
-          </div>
-          <div class="related-info">
-            <div class="related-title">${escHtml(item.friendly_name || item.file_name)}</div>
+             <img class="related-thumb" src="${thumb}" alt="${escHtml(item.friendly_name || item.file_name)}"
+                  loading="lazy" onerror="this.src='/img/no-thumb.svg'" />
+             ${item.duration ? `<span class="related-duration">${fmtDur(item.duration)}</span>` : ''}
+             ${item.is_virtual ? '<span class="related-badge">Stitched</span>' : ''}
+             ${adminModeEnabled && (item.visibility === 'admin' || item.source_visibility === 'admin') ? '<span class="related-badge related-badge-admin-only">Admin Only</span>' : ''}
+           </div>
+           <div class="related-info">
+             <button class="related-share-btn" type="button" data-related-share-id="${escHtml(item.id)}" aria-label="Share video link">🔗</button>
+             <div class="related-title">${escHtml(item.friendly_name || item.file_name)}</div>
             <div class="related-meta">${item.year || ''} ${item.location ? '· ' + escHtml(item.location) : ''}</div>
           </div>`;
         grid.appendChild(card);
@@ -1032,9 +1496,13 @@
   async function init() {
     clipWatermarkEnabled = readClipWatermarkPreference();
     clipWatermarkMode = readClipWatermarkModePreference();
+    await loadUiSettings();
     bindStitchedSegmentToggle();
     bindStitchedSegmentListActions();
     bindClipWatermarkToggle();
+    bindBookmarkActions();
+    bindBookmarkDialog();
+    bindCommentForm();
 
     const adminStatus = window.OurTubeAdminMode?.status?.();
     adminModeEnabled = !!adminStatus?.authenticated;
@@ -1065,8 +1533,13 @@
       renderMeta(media);
 
       if (media.type === 'video') {
-        const resumeSeconds = await loadPlaybackProgress();
+        // When a specific bookmark is requested, jump to that marker instead of auto-resuming playback progress.
+        const resumeSeconds = Number.isInteger(bookmarkQueryId) && bookmarkQueryId > 0
+          ? 0
+          : await loadPlaybackProgress();
         initVideo(media, resumeSeconds);
+        await loadBookmarks(media);
+        await loadComments(media);
       } else {
         initPhoto(media);
       }

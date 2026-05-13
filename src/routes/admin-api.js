@@ -205,6 +205,15 @@ function getLocationsWithEntries(db) {
   });
 }
 
+function parseBookmarkTags(rawTags) {
+  try {
+    const parsed = JSON.parse(rawTags || '[]');
+    return Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
 // GET /api/admin/media-root/browse?path=/media/subdir
 router.get('/media-root/browse', (req, res) => {
   const requestedPath = typeof req.query.path === 'string' && req.query.path.trim()
@@ -292,6 +301,142 @@ router.get('/skipped-files', (req, res) => {
   ).all(search, search, search, pageLimit, offset);
 
   res.json({ total, page: safePage, limit: pageLimit, items });
+});
+
+// GET /api/admin/bookmarks
+router.get('/bookmarks', (req, res) => {
+  const db = getDb();
+  const { q = '', page = 1, limit = 25, scope = '' } = req.query;
+
+  const safePage = Math.max(1, parseInt(page, 10) || 1);
+  const pageLimit = Math.min(100, Math.max(1, parseInt(limit, 10) || 25));
+  const offset = (safePage - 1) * pageLimit;
+  const normalizedScope = scope === 'regular' || scope === 'virtual' ? scope : '';
+  const search = String(q || '').trim();
+  const searchLike = `%${search}%`;
+
+  const whereSql = `
+    WHERE (? = '' OR scope = ?)
+      AND (
+        ? = ''
+        OR media_id LIKE ?
+        OR COALESCE(title, '') LIKE ?
+        OR COALESCE(annotation, '') LIKE ?
+        OR COALESCE(tags, '') LIKE ?
+        OR COALESCE(media_name, '') LIKE ?
+        OR COALESCE(source_location_name, '') LIKE ?
+      )`;
+
+  const baseSql = `
+    FROM (
+      SELECT
+        'regular' AS scope,
+        b.id,
+        b.media_id,
+        b.time_seconds,
+        b.title,
+        b.annotation,
+        b.tags,
+        b.created_at,
+        COALESCE(m.friendly_name, m.file_name, m.id) AS media_name,
+        m.thumbnail_path,
+        m.id AS thumbnail_media_id,
+        sl.name AS source_location_name
+      FROM video_bookmarks b
+      LEFT JOIN media m ON m.id = b.media_id
+      LEFT JOIN source_locations sl ON sl.id = m.source_location_id
+      UNION ALL
+      SELECT
+        'virtual' AS scope,
+        b.id,
+        b.media_id,
+        b.time_seconds,
+        b.title,
+        b.annotation,
+        b.tags,
+        b.created_at,
+        NULL AS media_name,
+        NULL AS thumbnail_path,
+        NULL AS thumbnail_media_id,
+        NULL AS source_location_name
+      FROM virtual_video_bookmarks b
+    ) merged`;
+
+  const countRow = db.prepare(`SELECT COUNT(*) AS cnt ${baseSql} ${whereSql}`).get(
+    normalizedScope,
+    normalizedScope,
+    search,
+    searchLike,
+    searchLike,
+    searchLike,
+    searchLike,
+    searchLike,
+    searchLike
+  );
+
+  const rows = db.prepare(
+    `SELECT scope, id, media_id, time_seconds, title, annotation, tags, created_at, media_name, thumbnail_path, thumbnail_media_id, source_location_name
+     ${baseSql}
+     ${whereSql}
+     ORDER BY datetime(created_at) DESC, id DESC
+     LIMIT ? OFFSET ?`
+  ).all(
+    normalizedScope,
+    normalizedScope,
+    search,
+    searchLike,
+    searchLike,
+    searchLike,
+    searchLike,
+    searchLike,
+    searchLike,
+    pageLimit,
+    offset
+  );
+
+  const items = rows.map(row => ({
+    scope: row.scope,
+    id: row.id,
+    media_id: row.media_id,
+    time_seconds: Number(row.time_seconds) || 0,
+    title: row.title || '',
+    annotation: row.annotation || '',
+    tags: parseBookmarkTags(row.tags),
+    created_at: row.created_at,
+    media_name: row.media_name || row.media_id,
+    thumbnail_url: row.thumbnail_path
+      ? `/thumbnail/${encodeURIComponent(row.thumbnail_media_id || row.media_id)}`
+      : null,
+    source_location_name: row.source_location_name || null,
+  }));
+
+  res.json({
+    total: Number(countRow?.cnt) || 0,
+    page: safePage,
+    limit: pageLimit,
+    items,
+  });
+});
+
+// DELETE /api/admin/bookmarks/:scope/:id
+router.delete('/bookmarks/:scope/:id', (req, res) => {
+  const db = getDb();
+  const scope = String(req.params.scope || '').trim().toLowerCase();
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id' });
+  if (scope === 'regular') {
+    const row = db.prepare('SELECT id, media_id FROM video_bookmarks WHERE id = ?').get(id);
+    if (!row) return res.status(404).json({ error: 'Not found' });
+    db.prepare('DELETE FROM video_bookmarks WHERE id = ?').run(id);
+    return res.json({ success: true, scope, id, media_id: row.media_id });
+  }
+  if (scope === 'virtual') {
+    const row = db.prepare('SELECT id, media_id FROM virtual_video_bookmarks WHERE id = ?').get(id);
+    if (!row) return res.status(404).json({ error: 'Not found' });
+    db.prepare('DELETE FROM virtual_video_bookmarks WHERE id = ?').run(id);
+    return res.json({ success: true, scope, id, media_id: row.media_id });
+  }
+  return res.status(400).json({ error: 'Invalid scope' });
 });
 
 // GET /api/admin/system-info

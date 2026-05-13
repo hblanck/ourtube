@@ -18,6 +18,11 @@
         <button type="submit" class="search-btn">🔍</button>
       </form>
       <nav class="header-nav">
+        <div id="header-bookmarks-nav" class="header-bookmarks-nav" style="display:none">
+          <select id="header-bookmarks-select" class="header-bookmarks-select" aria-label="Jump to bookmark">
+            <option value="">🔖 Bookmarks</option>
+          </select>
+        </div>
         <a href="/" class="nav-link">🎬 Videos</a>
         <a href="/photos.html" class="nav-link">📷 Photos</a>
       </nav>
@@ -70,8 +75,28 @@
           <span id="watch-visibility-badge" class="watch-badge watch-badge-admin-only" style="display:none">Admin Only</span>
           <a id="watch-admin-edit" class="watch-badge" style="display:none" href="/admin/?tab=library">Edit Metadata</a>
         </div>
-        <div class="media-meta" id="media-meta"></div>
+        <div class="media-meta-actions-row">
+          <div class="media-meta" id="media-meta"></div>
+          <div id="watch-actions" class="watch-actions" style="display:none">
+            <button
+              id="open-bookmark-dialog-btn"
+              class="btn btn-secondary btn-small watch-action-icon-btn"
+              type="button"
+              data-open-bookmark-dialog="1"
+              title="Add bookmark"
+              aria-label="Add bookmark"
+            >🔖</button>
+            <button
+              id="share-video-btn"
+              class="btn btn-secondary btn-small watch-action-icon-btn"
+              type="button"
+              title="Share video"
+              aria-label="Share video"
+            >🔗</button>
+          </div>
+        </div>
         <div class="media-desc" id="media-desc"></div>
+        <span id="share-video-msg" class="watch-action-msg" role="status" aria-live="polite"></span>
 
         <div id="stitched-segments" class="stitched-segments" style="display:none">
           <button
@@ -104,13 +129,69 @@
         <div id="tags-container" class="tags-container"></div>
         <div id="faces-container" class="faces-container"></div>
 
+        <section id="comments-section" class="watch-social-section" style="display:none">
+          <h3 class="watch-social-title">💬 Comments</h3>
+          <div id="comments-list" class="watch-social-list"></div>
+          <form id="comment-form" class="watch-social-form">
+            <div class="watch-social-form-row">
+              <input type="text" name="author_name" class="form-input" maxlength="60" placeholder="Your name (optional)" />
+            </div>
+            <textarea name="comment_text" class="form-textarea" maxlength="2000" placeholder="Add a comment" required></textarea>
+            <button type="submit" class="btn btn-primary btn-small">Post Comment</button>
+          </form>
+        </section>
       </div>
     </div>
 
     <aside class="watch-sidebar">
+      <section id="bookmarks-section" class="watch-social-section watch-sidebar-bookmarks" style="display:none">
+        <div class="watch-social-title-row">
+          <h3 class="watch-social-title">📌 Bookmarks</h3>
+          <button
+            id="open-bookmark-dialog-btn-list"
+            class="btn btn-secondary btn-small watch-bookmarks-add-btn"
+            type="button"
+            data-open-bookmark-dialog="1"
+            title="Add bookmark"
+            aria-label="Add bookmark"
+          >🔖</button>
+        </div>
+        <div id="bookmarks-list" class="watch-social-list"></div>
+      </section>
       <h3 class="sidebar-title">Up Next</h3>
       <div id="related-grid" class="related-grid"></div>
     </aside>
+  </div>
+
+  <div class="modal-overlay" id="bookmark-modal">
+    <div class="modal modal-narrow">
+      <div class="modal-header">
+        <div class="modal-title">Add Bookmark</div>
+        <button class="modal-close" id="bookmark-dialog-close" type="button">✕</button>
+      </div>
+      <form id="bookmark-dialog-form">
+        <div class="form-group">
+          <label class="form-label">Current time</label>
+          <div id="bookmark-dialog-time" class="admin-meta-text">0:00</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="bookmark-dialog-title">Title</label>
+          <input id="bookmark-dialog-title" type="text" name="title" class="form-input" maxlength="120" placeholder="Bookmark title (optional)" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="bookmark-dialog-tags">Tags</label>
+          <input id="bookmark-dialog-tags" type="text" name="tags" class="form-input" maxlength="240" placeholder="Tags (comma-separated)" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="bookmark-dialog-annotation">Annotation</label>
+          <textarea id="bookmark-dialog-annotation" name="annotation" class="form-textarea" maxlength="1000" placeholder="Annotation"></textarea>
+        </div>
+        <div class="modal-footer">
+          <button id="bookmark-dialog-cancel" class="btn btn-secondary" type="button">Cancel</button>
+          <button class="btn btn-primary" type="submit">Save Bookmark</button>
+        </div>
+      </form>
+    </div>
   </div>
 
   <script src="https://vjs.zencdn.net/8.10.0/video.min.js"></script>

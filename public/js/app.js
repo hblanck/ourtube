@@ -65,6 +65,63 @@
     return mb.toFixed(0) + ' MB';
   }
 
+  function buildWatchUrl(mediaId) {
+    const qs = new URLSearchParams({ id: String(mediaId || '') });
+    return `${window.location.origin}/watch.html?${qs.toString()}`;
+  }
+
+  async function copyTextToClipboard(text) {
+    const content = String(text || '');
+    if (!content) return false;
+
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(content);
+        return true;
+      } catch {
+        // Fall through to legacy copy path.
+      }
+    }
+
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = content;
+      ta.setAttribute('readonly', 'readonly');
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      return !!ok;
+    } catch {
+      return false;
+    }
+  }
+
+  function showAppActionMessage(text) {
+    const message = String(text || '').trim();
+    if (!message) return;
+
+    let el = document.getElementById('app-action-msg');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'app-action-msg';
+      el.className = 'app-action-msg';
+      el.setAttribute('role', 'status');
+      el.setAttribute('aria-live', 'polite');
+      document.body.appendChild(el);
+    }
+
+    el.textContent = message;
+    el.classList.add('visible');
+
+    if (showAppActionMessage._timer) clearTimeout(showAppActionMessage._timer);
+    showAppActionMessage._timer = setTimeout(() => {
+      el.classList.remove('visible');
+    }, 1800);
+  }
+
   function buildCardTooltip(item, isVideo, collectionName) {
     const lines = [];
     const displayName = String(item.friendly_name || item.file_name || 'Untitled');
@@ -436,6 +493,22 @@
     });
   }
 
+  function initMediaCardShareButtons() {
+    document.addEventListener('click', async event => {
+      const shareAction = event.target.closest('[data-card-share-id]');
+      if (shareAction) {
+        event.preventDefault();
+        event.stopPropagation();
+        const mediaId = String(shareAction.getAttribute('data-card-share-id') || '').trim();
+        if (!mediaId) return;
+
+        const ok = await copyTextToClipboard(buildWatchUrl(mediaId));
+        showAppActionMessage(ok ? 'Video link copied to clipboard' : 'Unable to copy link');
+        return;
+      }
+    });
+  }
+
   function setRadioValue(name, value) {
     document.querySelectorAll(`input[name="${name}"]`).forEach(input => {
       input.checked = input.value === value;
@@ -667,6 +740,7 @@
         ${rightBadges.length ? `<div class="card-right-badges">${rightBadges.join('')}</div>` : ''}
       </div>
       <div class="card-info">
+        <button class="card-share-btn" type="button" data-card-share-id="${escHtml(item.id)}" aria-label="Share video link">🔗</button>
         <div class="card-title">${name}</div>
         <div class="card-meta">
           ${item.year ? item.year : ''}
@@ -1011,6 +1085,7 @@
     initSidebarToggle();
   bindFeaturedSectionToggle();
     bindFilters();
+    initMediaCardShareButtons();
     initMediaCardTooltips();
     initMediaCardPreviews();
     await Promise.all([loadFeatured(), loadStats(), loadYearFilter(), loadLocationFilter(), loadSourceLocationFilter()]);
