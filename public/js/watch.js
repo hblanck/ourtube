@@ -177,7 +177,7 @@
 
     btn.addEventListener('click', async () => {
       const ok = await copyTextToClipboard(buildWatchUrl());
-      showWatchActionMessage(ok ? 'Video link copied' : 'Unable to copy link');
+      showWatchActionMessage(ok ? 'Video link copied to clipboard' : 'Unable to copy link');
     });
     btn.dataset.bound = '1';
   }
@@ -198,12 +198,6 @@
     modal.classList.add('open');
     const title = form.querySelector('[name="title"]');
     if (title) title.focus();
-  }
-
-  function updateBookmarkCreateButtonVisibility() {
-    const wrap = document.getElementById('bookmark-create-wrap');
-    if (!wrap) return;
-    wrap.style.display = currentMedia && currentMedia.type === 'video' ? '' : 'none';
   }
 
   function getCurrentDurationSeconds() {
@@ -1042,7 +1036,6 @@
     }
 
     bindShareVideoButton();
-    updateBookmarkCreateButtonVisibility();
   }
 
   function renderBookmarks(items = []) {
@@ -1106,7 +1099,7 @@
         const selected = items.find(item => Number(item.id) === bookmarkQueryId);
         if (selected) {
           seekToVideoTime(selected.time_seconds, { autoplay: false });
-          showWatchActionMessage(`Jumped to bookmark ${fmtDur(Math.max(0, Number(selected.time_seconds) || 0))}`);
+          showWatchActionMessage(`Navigated to bookmark at ${fmtDur(Math.max(0, Number(selected.time_seconds) || 0))}`);
         }
       }
 
@@ -1134,7 +1127,7 @@
         if (shareTarget) {
           const bookmarkId = Number.parseInt(shareTarget.getAttribute('data-bookmark-share') || '', 10);
           const ok = await copyTextToClipboard(buildWatchUrl(bookmarkId));
-          showWatchActionMessage(ok ? 'Bookmark link copied' : 'Unable to copy link');
+          showWatchActionMessage(ok ? 'Bookmark link copied to clipboard' : 'Unable to copy link');
         }
       });
       list.dataset.bound = '1';
@@ -1142,17 +1135,18 @@
   }
 
   function bindBookmarkDialog() {
-    const openBtn = document.getElementById('open-bookmark-dialog-btn');
     const closeBtn = document.getElementById('bookmark-dialog-close');
     const cancelBtn = document.getElementById('bookmark-dialog-cancel');
     const modal = document.getElementById('bookmark-modal');
     const form = document.getElementById('bookmark-dialog-form');
-    if (!openBtn || !modal || !form) return;
+    const openBtns = Array.from(document.querySelectorAll('[data-open-bookmark-dialog]'));
+    if (!openBtns.length || !modal || !form) return;
 
-    if (openBtn.dataset.bound !== '1') {
-      openBtn.addEventListener('click', openBookmarkDialog);
-      openBtn.dataset.bound = '1';
-    }
+    openBtns.forEach(btn => {
+      if (btn.dataset.bound === '1') return;
+      btn.addEventListener('click', openBookmarkDialog);
+      btn.dataset.bound = '1';
+    });
 
     if (closeBtn && closeBtn.dataset.bound !== '1') {
       closeBtn.addEventListener('click', closeBookmarkDialog);
@@ -1291,6 +1285,13 @@
     form.dataset.bound = '1';
   }
 
+  function closeRelatedThumbMenus(exceptWrap = null) {
+    document.querySelectorAll('.related-thumb-wrap.menu-open').forEach(wrap => {
+      if (exceptWrap && wrap === exceptWrap) return;
+      wrap.classList.remove('menu-open');
+    });
+  }
+
   async function loadRelated(media) {
     const grid = document.getElementById('related-grid');
     if (!grid) return;
@@ -1298,15 +1299,33 @@
 
     if (grid.dataset.shareBound !== '1') {
       grid.addEventListener('click', async event => {
-        const shareBtn = event.target.closest('[data-related-share-id]');
-        if (!shareBtn) return;
-        event.preventDefault();
-        event.stopPropagation();
-        const targetId = String(shareBtn.getAttribute('data-related-share-id') || '').trim();
-        if (!targetId) return;
-        const ok = await copyTextToClipboard(buildWatchUrl(null, targetId));
-        showWatchActionMessage(ok ? 'Video link copied' : 'Unable to copy link');
+        const menuToggle = event.target.closest('[data-related-menu-toggle]');
+        if (menuToggle) {
+          event.preventDefault();
+          event.stopPropagation();
+          const wrap = menuToggle.closest('.related-thumb-wrap');
+          if (!wrap) return;
+          const isOpen = wrap.classList.contains('menu-open');
+          closeRelatedThumbMenus();
+          if (!isOpen) wrap.classList.add('menu-open');
+          return;
+        }
+
+        const shareItem = event.target.closest('[data-related-menu-share-id]');
+        if (shareItem) {
+          event.preventDefault();
+          event.stopPropagation();
+          const targetId = String(shareItem.getAttribute('data-related-menu-share-id') || '').trim();
+          if (!targetId) return;
+          const ok = await copyTextToClipboard(buildWatchUrl(null, targetId));
+          showWatchActionMessage(ok ? 'Video link copied to clipboard' : 'Unable to copy link');
+          closeRelatedThumbMenus();
+          return;
+        }
+
+        closeRelatedThumbMenus();
       });
+      document.addEventListener('click', () => closeRelatedThumbMenus());
       grid.dataset.shareBound = '1';
     }
 
@@ -1328,7 +1347,10 @@
              ${item.duration ? `<span class="related-duration">${fmtDur(item.duration)}</span>` : ''}
              ${item.is_virtual ? '<span class="related-badge">Stitched</span>' : ''}
              ${adminModeEnabled && (item.visibility === 'admin' || item.source_visibility === 'admin') ? '<span class="related-badge related-badge-admin-only">Admin Only</span>' : ''}
-             <button class="related-thumb-share" type="button" data-related-share-id="${escHtml(item.id)}" aria-label="Copy share URL">🔗</button>
+             <button class="related-thumb-menu-btn" type="button" data-related-menu-toggle="1" aria-label="Open thumbnail menu">⋯</button>
+             <div class="related-thumb-menu" role="menu">
+               <button class="related-thumb-menu-item" type="button" data-related-menu-share-id="${escHtml(item.id)}" role="menuitem">🔗 Share video</button>
+             </div>
            </div>
            <div class="related-info">
              <div class="related-title">${escHtml(item.friendly_name || item.file_name)}</div>
@@ -1469,6 +1491,7 @@
       renderMeta(media);
 
       if (media.type === 'video') {
+        // When a specific bookmark is requested, jump to that marker instead of auto-resuming playback progress.
         const resumeSeconds = Number.isInteger(bookmarkQueryId) && bookmarkQueryId > 0
           ? 0
           : await loadPlaybackProgress();

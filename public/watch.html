@@ -70,15 +70,28 @@
           <span id="watch-visibility-badge" class="watch-badge watch-badge-admin-only" style="display:none">Admin Only</span>
           <a id="watch-admin-edit" class="watch-badge" style="display:none" href="/admin/?tab=library">Edit Metadata</a>
         </div>
-        <div class="media-meta" id="media-meta"></div>
+        <div class="media-meta-actions-row">
+          <div class="media-meta" id="media-meta"></div>
+          <div id="watch-actions" class="watch-actions" style="display:none">
+            <button
+              id="open-bookmark-dialog-btn"
+              class="btn btn-secondary btn-small watch-action-icon-btn"
+              type="button"
+              data-open-bookmark-dialog="1"
+              title="Add bookmark"
+              aria-label="Add bookmark"
+            >+</button>
+            <button
+              id="share-video-btn"
+              class="btn btn-secondary btn-small watch-action-icon-btn"
+              type="button"
+              title="Share video"
+              aria-label="Share video"
+            >🔗</button>
+          </div>
+        </div>
         <div class="media-desc" id="media-desc"></div>
-        <div id="watch-actions" class="watch-actions" style="display:none">
-          <button id="share-video-btn" class="btn btn-secondary btn-small" type="button">🔗 Share Video</button>
-          <span id="share-video-msg" class="watch-action-msg" role="status" aria-live="polite"></span>
-        </div>
-        <div id="bookmark-create-wrap" class="watch-bookmark-create-wrap" style="display:none">
-          <button id="open-bookmark-dialog-btn" class="btn btn-primary btn-small" type="button">📌 Add Bookmark</button>
-        </div>
+        <span id="share-video-msg" class="watch-action-msg" role="status" aria-live="polite"></span>
 
         <div id="stitched-segments" class="stitched-segments" style="display:none">
           <button
@@ -127,7 +140,17 @@
 
     <aside class="watch-sidebar">
       <section id="bookmarks-section" class="watch-social-section watch-sidebar-bookmarks" style="display:none">
-        <h3 class="watch-social-title">📌 Bookmarks</h3>
+        <div class="watch-social-title-row">
+          <h3 class="watch-social-title">📌 Bookmarks</h3>
+          <button
+            id="open-bookmark-dialog-btn-list"
+            class="btn btn-secondary btn-small watch-bookmarks-add-btn"
+            type="button"
+            data-open-bookmark-dialog="1"
+            title="Add bookmark"
+            aria-label="Add bookmark"
+          >+</button>
+        </div>
         <div id="bookmarks-list" class="watch-social-list"></div>
       </section>
       <h3 class="sidebar-title">Up Next</h3>
