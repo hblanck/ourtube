@@ -1089,7 +1089,7 @@
     }
   }
 
-
+  function renderBookmarks(items = []) {
     const section = document.getElementById('bookmarks-section');
     const list = document.getElementById('bookmarks-list');
     if (!section || !list) return;
@@ -1338,7 +1338,7 @@
   }
 
   function closeRelatedThumbMenus(exceptWrap = null) {
-    document.querySelectorAll('.related-thumb-wrap.menu-open').forEach(wrap => {
+    document.querySelectorAll('.related-card.menu-open').forEach(wrap => {
       if (exceptWrap && wrap === exceptWrap) return;
       wrap.classList.remove('menu-open');
     });
@@ -1355,11 +1355,11 @@
         if (menuToggle) {
           event.preventDefault();
           event.stopPropagation();
-          const wrap = menuToggle.closest('.related-thumb-wrap');
-          if (!wrap) return;
-          const isOpen = wrap.classList.contains('menu-open');
+          const card = menuToggle.closest('.related-card[data-related-href]');
+          if (!card) return;
+          const isOpen = card.classList.contains('menu-open');
           closeRelatedThumbMenus();
-          if (!isOpen) wrap.classList.add('menu-open');
+          if (!isOpen) card.classList.add('menu-open');
           return;
         }
 
@@ -1375,7 +1375,20 @@
           return;
         }
 
+        const linkCard = event.target.closest('.related-card[data-related-href]');
+        if (linkCard) {
+          window.location.href = linkCard.dataset.relatedHref || linkCard.getAttribute('data-related-href') || '';
+          return;
+        }
+
         closeRelatedThumbMenus();
+      });
+      grid.addEventListener('keydown', event => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        const linkCard = event.target.closest('.related-card[data-related-href]');
+        if (!linkCard) return;
+        event.preventDefault();
+        window.location.href = linkCard.dataset.relatedHref || linkCard.getAttribute('data-related-href') || '';
       });
       document.addEventListener('click', () => closeRelatedThumbMenus());
       grid.dataset.shareBound = '1';
@@ -1388,9 +1401,12 @@
 
       const others = data.items.filter(m => m.id !== mediaId).slice(0, 8);
       others.forEach(item => {
-        const card = document.createElement('a');
-        card.href = `/watch.html?id=${item.id}`;
+        const cardHref = `/watch.html?id=${item.id}`;
+        const card = document.createElement('div');
         card.className = 'related-card';
+        card.dataset.relatedHref = cardHref;
+        card.tabIndex = 0;
+        card.setAttribute('role', 'link');
         const thumb = `/thumbnail/${item.thumbnail_media_id || item.id}`;
         card.innerHTML = `
           <div class="related-thumb-wrap">
@@ -1399,12 +1415,12 @@
              ${item.duration ? `<span class="related-duration">${fmtDur(item.duration)}</span>` : ''}
              ${item.is_virtual ? '<span class="related-badge">Stitched</span>' : ''}
              ${adminModeEnabled && (item.visibility === 'admin' || item.source_visibility === 'admin') ? '<span class="related-badge related-badge-admin-only">Admin Only</span>' : ''}
-             <button class="related-thumb-menu-btn" type="button" data-related-menu-toggle="1" aria-label="Open thumbnail menu">⋯</button>
+           </div>
+           <div class="related-info">
+             <button class="related-thumb-menu-btn" type="button" data-related-menu-toggle="1" aria-label="Open thumbnail menu">...</button>
              <div class="related-thumb-menu" role="menu">
                <button class="related-thumb-menu-item" type="button" data-related-menu-share-id="${escHtml(item.id)}" role="menuitem">🔗 Share video</button>
              </div>
-           </div>
-           <div class="related-info">
              <div class="related-title">${escHtml(item.friendly_name || item.file_name)}</div>
             <div class="related-meta">${item.year || ''} ${item.location ? '· ' + escHtml(item.location) : ''}</div>
           </div>`;

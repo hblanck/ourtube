@@ -65,6 +65,40 @@
     return mb.toFixed(0) + ' MB';
   }
 
+  function buildWatchUrl(mediaId) {
+    const qs = new URLSearchParams({ id: String(mediaId || '') });
+    return `${window.location.origin}/watch.html?${qs.toString()}`;
+  }
+
+  async function copyTextToClipboard(text) {
+    const content = String(text || '');
+    if (!content) return false;
+
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(content);
+        return true;
+      } catch {
+        // Fall through to legacy copy path.
+      }
+    }
+
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = content;
+      ta.setAttribute('readonly', 'readonly');
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      return !!ok;
+    } catch {
+      return false;
+    }
+  }
+
   function buildCardTooltip(item, isVideo, collectionName) {
     const lines = [];
     const displayName = String(item.friendly_name || item.file_name || 'Untitled');
@@ -436,6 +470,52 @@
     });
   }
 
+  function closeMediaCardMenus(exceptCard = null) {
+    document.querySelectorAll('.media-card.menu-open').forEach(card => {
+      if (exceptCard && card === exceptCard) return;
+      card.classList.remove('menu-open');
+    });
+  }
+
+  function initMediaCardMenus() {
+    document.addEventListener('click', async event => {
+      const toggle = event.target.closest('[data-card-menu-toggle]');
+      if (toggle) {
+        event.preventDefault();
+        event.stopPropagation();
+        const card = toggle.closest('.media-card');
+        if (!card) return;
+        const isOpen = card.classList.contains('menu-open');
+        closeMediaCardMenus();
+        if (!isOpen) card.classList.add('menu-open');
+        return;
+      }
+
+      const shareAction = event.target.closest('[data-card-menu-share-id]');
+      if (shareAction) {
+        event.preventDefault();
+        event.stopPropagation();
+        const mediaId = String(shareAction.getAttribute('data-card-menu-share-id') || '').trim();
+        if (!mediaId) return;
+
+        const ok = await copyTextToClipboard(buildWatchUrl(mediaId));
+        const previousLabel = shareAction.textContent;
+        shareAction.textContent = ok ? 'Copied' : 'Copy failed';
+        setTimeout(() => {
+          shareAction.textContent = previousLabel;
+        }, 1200);
+        closeMediaCardMenus();
+        return;
+      }
+
+      closeMediaCardMenus();
+    });
+
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape') closeMediaCardMenus();
+    });
+  }
+
   function setRadioValue(name, value) {
     document.querySelectorAll(`input[name="${name}"]`).forEach(input => {
       input.checked = input.value === value;
@@ -667,6 +747,10 @@
         ${rightBadges.length ? `<div class="card-right-badges">${rightBadges.join('')}</div>` : ''}
       </div>
       <div class="card-info">
+        <button class="card-menu-btn" type="button" data-card-menu-toggle="1" aria-label="Open card menu">...</button>
+        <div class="card-menu" role="menu">
+          <button class="card-menu-item" type="button" data-card-menu-share-id="${escHtml(item.id)}" role="menuitem">Share link</button>
+        </div>
         <div class="card-title">${name}</div>
         <div class="card-meta">
           ${item.year ? item.year : ''}
@@ -1011,6 +1095,7 @@
     initSidebarToggle();
   bindFeaturedSectionToggle();
     bindFilters();
+    initMediaCardMenus();
     initMediaCardTooltips();
     initMediaCardPreviews();
     await Promise.all([loadFeatured(), loadStats(), loadYearFilter(), loadLocationFilter(), loadSourceLocationFilter()]);
