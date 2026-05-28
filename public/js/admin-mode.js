@@ -24,7 +24,10 @@
   }
 
   async function fetchStatus() {
-    const res = await fetch('/api/admin/auth/status', { credentials: 'same-origin' });
+    const res = await fetch('/api/admin/auth/status', {
+      credentials: 'same-origin',
+      cache: 'no-store',
+    });
     if (!res.ok) throw new Error('Failed to load admin status');
     status = await res.json();
     return status;

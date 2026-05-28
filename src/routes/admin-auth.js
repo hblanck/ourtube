@@ -17,6 +17,14 @@ const {
 
 const router = express.Router();
 
+router.use((_req, res, next) => {
+  // Auth/session responses must never be cached because state is cookie-dependent.
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
+  next();
+});
+
 function getClientIp(req) {
   const xff = req.headers['x-forwarded-for'];
   if (typeof xff === 'string' && xff.length > 0) {

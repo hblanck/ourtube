@@ -49,6 +49,7 @@ describe('POST /api/admin/auth/login', () => {
       .send({});
 
     expect(res.status).toBe(400);
+    expect(String(res.headers['cache-control'] || '')).toContain('no-store');
     expect(res.body).toEqual(expect.objectContaining({
       errorCode: 'MISSING_KEY',
       error: expect.any(String),
@@ -62,6 +63,7 @@ describe('POST /api/admin/auth/login', () => {
       .send({ key: 'definitely-wrong' });
 
     expect(res.status).toBe(401);
+    expect(String(res.headers['cache-control'] || '')).toContain('no-store');
     expect(res.body).toEqual(expect.objectContaining({
       errorCode: 'INVALID_KEY',
       error: expect.any(String),
@@ -75,6 +77,7 @@ describe('POST /api/admin/auth/login', () => {
       .send({ key: `  ${bootstrapKey}\n` });
 
     expect(res.status).toBe(200);
+    expect(String(res.headers['cache-control'] || '')).toContain('no-store');
     expect(res.body).toEqual(expect.objectContaining({
       configured: true,
       authenticated: true,
@@ -82,5 +85,16 @@ describe('POST /api/admin/auth/login', () => {
       sessionTtlMinutes: expect.any(Number),
     }));
     expect(telemetry.recordAdminLoginAttempt).toHaveBeenCalledWith('success');
+  });
+
+  test('status endpoint is not cacheable', async () => {
+    const res = await request(app).get('/api/admin/auth/status');
+
+    expect(res.status).toBe(200);
+    expect(String(res.headers['cache-control'] || '')).toContain('no-store');
+    expect(res.body).toEqual(expect.objectContaining({
+      configured: expect.any(Boolean),
+      authenticated: expect.any(Boolean),
+    }));
   });
 });
