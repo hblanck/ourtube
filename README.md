@@ -104,21 +104,40 @@ Admin bulk tools:
 
 Admin APIs are protected by key-based authentication. End-user browsing and playback stay open.
 
-Create the first key from CLI:
+Create the first key from CLI (first-time bootstrap):
 
 ```bash
 npm run admin:key:create
 ```
 
-When running in Docker:
+When running in Docker and the container is already running:
 
 ```bash
 docker compose exec ourtube npm run admin:key:create
 ```
 
-The command prints a key once. Use the **🔐 Admin** button in the main UI header to unlock admin mode.
+When running in Docker and the container is not running yet:
+
+```bash
+docker compose run --rm ourtube npm run admin:key:create
+```
+
+Use this key in the **🔐 Admin** button in the main UI header to unlock admin mode.
+
+### Admin Key Management (After Bootstrap)
 
 After unlocking, manage keys in **Admin → Settings → Admin Keys** (create, rename, revoke).
+
+You can also create additional keys from CLI any time:
+
+```bash
+npm run admin:key:create "Living Room Tablet"
+```
+
+Important persistence note:
+- Admin keys are stored in SQLite under `DATA_DIR`.
+- If your `/data` volume is reset/recreated, existing keys are lost and you must bootstrap a new key.
+
 
 ## Environment Variables
 

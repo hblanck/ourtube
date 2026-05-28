@@ -19,7 +19,7 @@ const apiRouter = require('./routes/api');
 const adminAuthRouter = require('./routes/admin-auth');
 const adminApiRouter = require('./routes/admin-api');
 const streamRouter = require('./routes/stream');
-const { requireAdminAuth } = require('./admin-auth');
+const { requireAdminAuth, getConfiguredAdminKeyCount } = require('./admin-auth');
 const { canAccessFromRow } = require('./visibility');
 
 const PORT = parseInt(process.env.PORT) || 3000;
@@ -122,12 +122,26 @@ const streamLimiter = rateLimit({ windowMs: 60_000, limit: 2000, standardHeaders
 const thumbnailLimiter = rateLimit({ windowMs: 60_000, limit: 1000, standardHeaders: true, legacyHeaders: false, keyGenerator: getMediaRateLimitKey });
 const photoLimiter = rateLimit({ windowMs: 60_000, limit: 1000, standardHeaders: true, legacyHeaders: false, keyGenerator: getMediaRateLimitKey });
 const adminLimiter = rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: true, legacyHeaders: false });
+const adminAuthLoginLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  handler: (_req, res) => {
+    res.status(429).json({
+      errorCode: 'RATE_LIMITED',
+      error: 'Too many login attempts. Please wait and try again.',
+    });
+  },
+});
 
 // Static files
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 // API routes
 app.use('/api', apiLimiter, apiRouter);
+app.use('/api/admin/auth/login', adminAuthLoginLimiter);
 app.use('/api/admin/auth', adminLimiter, adminAuthRouter);
 app.use('/api/admin', adminLimiter, requireAdminAuth, adminApiRouter);
 
@@ -206,6 +220,10 @@ app.get('/api/blocked-status', (req, res) => {
 
 // Initialize database and start server
 initDb();
+
+if (getConfiguredAdminKeyCount() === 0) {
+  console.warn('[server] No active admin keys found. Bootstrap one with: npm run admin:key:create');
+}
 
 const db = getDb();
 const scanOnStartup = db.prepare("SELECT value FROM settings WHERE key = 'scan_on_startup'").get();

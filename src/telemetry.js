@@ -41,6 +41,7 @@ const _localCounters = {
   scansRun: 0,
   bytesStreamed: 0,
   streamRequests: 0,
+  adminLoginAttempts: 0,
 };
 
 const otlpEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT || '';
@@ -94,6 +95,9 @@ function init() {
     const scanCounter = _meter.createCounter('ourtube.scans.total', { description: 'Total library scans completed' });
     const bytesCounter = _meter.createCounter('ourtube.stream.bytes_sent', { description: 'Total bytes sent via streams' });
     const streamCounter = _meter.createCounter('ourtube.stream.requests.total', { description: 'Total stream requests' });
+    const adminLoginCounter = _meter.createCounter('ourtube.admin.auth.login_attempts.total', {
+      description: 'Admin login attempts by outcome',
+    });
     const playbackMilestoneCounter = _meter.createCounter('ourtube.playback.milestones.total', { description: 'Playback milestone transitions' });
     const scanFilesCounter = _meter.createCounter('ourtube.scan.files.total', { description: 'Files observed during scans by outcome' });
 
@@ -172,7 +176,7 @@ function init() {
     ]);
 
     // Attach the meter counters so callers can increment them
-    _localCounters._otel = { reqCounter, scanCounter, bytesCounter, streamCounter };
+    _localCounters._otel = { reqCounter, scanCounter, bytesCounter, streamCounter, adminLoginCounter };
     _otelMetrics = {
       playbackMilestoneCounter,
       scanFilesCounter,
@@ -216,6 +220,16 @@ function recordStreamBytes(bytes, attributes = {}) {
 function recordStreamRequest(attributes = {}) {
   _localCounters.streamRequests++;
   _localCounters._otel?.streamCounter?.add(1, attributes);
+}
+
+/** Record an admin login attempt, tagged by outcome and optional reason. */
+function recordAdminLoginAttempt(outcome, attributes = {}) {
+  const normalizedOutcome = String(outcome || 'unknown');
+  _localCounters.adminLoginAttempts++;
+  _localCounters._otel?.adminLoginCounter?.add(1, {
+    outcome: normalizedOutcome,
+    ...attributes,
+  });
 }
 
 /** Return a snapshot of local counters for the admin UI. */
@@ -275,6 +289,7 @@ function getStats() {
       scansRun: _localCounters.scansRun,
       bytesStreamed: _localCounters.bytesStreamed,
       streamRequests: _localCounters.streamRequests,
+      adminLoginAttempts: _localCounters.adminLoginAttempts,
     },
   };
 }
@@ -428,6 +443,7 @@ module.exports = {
   recordScanComplete,
   recordStreamBytes,
   recordStreamRequest,
+  recordAdminLoginAttempt,
   recordPlaybackStartup,
   recordPlaybackMilestone,
   recordScanDuration,

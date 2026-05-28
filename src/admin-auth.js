@@ -203,6 +203,7 @@ function renameAdminKey(keyId, name) {
 module.exports = {
   generateAdminKey,
   createAdminKeyRecord,
+  getConfiguredAdminKeyCount,
   getAdminAuthStatus,
   tryAuthenticateAdminKey,
   loginAdmin,
