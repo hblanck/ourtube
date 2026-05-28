@@ -78,6 +78,7 @@ describe('POST /api/admin/auth/login', () => {
 
     expect(res.status).toBe(200);
     expect(String(res.headers['cache-control'] || '')).toContain('no-store');
+    expect(String(res.headers['set-cookie'] || '')).not.toContain('Secure');
     expect(res.body).toEqual(expect.objectContaining({
       configured: true,
       authenticated: true,
@@ -96,5 +97,15 @@ describe('POST /api/admin/auth/login', () => {
       configured: expect.any(Boolean),
       authenticated: expect.any(Boolean),
     }));
+  });
+
+  test('marks session cookie Secure when login request is https-forwarded', async () => {
+    const res = await request(app)
+      .post('/api/admin/auth/login')
+      .set('x-forwarded-proto', 'https')
+      .send({ key: bootstrapKey });
+
+    expect(res.status).toBe(200);
+    expect(String(res.headers['set-cookie'] || '')).toContain('Secure');
   });
 });

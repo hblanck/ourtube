@@ -68,7 +68,12 @@ router.post('/login', (req, res) => {
   }
 
   telemetry.recordAdminLoginAttempt('success');
-  const session = loginAdmin(res, keyId);
+  const session = loginAdmin(req, res, keyId);
+  const setCookieHeader = String(res.getHeader('Set-Cookie') || '');
+  const cookieSecure = setCookieHeader.includes('Secure');
+  console.info(
+    `[admin-auth] Login succeeded keyId=${keyId} ip=${getClientIp(req)} cookie_secure=${cookieSecure}`
+  );
   res.json({
     configured: true,
     authenticated: true,

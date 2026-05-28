@@ -36,6 +36,7 @@ services:
     environment:
       - PORT=3000
       - DATA_DIR=/data
+      - ADMIN_SESSION_COOKIE_SECURE=false
       - FACE_DETECTION_ENABLED=false
     restart: unless-stopped
 volumes:
@@ -53,6 +54,22 @@ docker compose up --watch
 ```
 
 Then open **http://localhost:3000** in your browser and go to **Admin → Source Locations** to add `/media` (or any path you mounted).
+
+### Admin Session Cookie Security (Important)
+
+Admin mode depends on an HTTP cookie (`ourtube_admin_session`). If this cookie is marked `Secure` while you are using plain `http://` access on a LAN, browsers will silently drop it and admin mode will appear locked even after a successful key login.
+
+Recommended values:
+- Plain HTTP on LAN (for example `http://ourtube:3000`): set `ADMIN_SESSION_COOKIE_SECURE=false`
+- HTTPS behind reverse proxy: set `ADMIN_SESSION_COOKIE_SECURE=true`
+- Auto mode with trusted proxy forwarding: leave unset and ensure `x-forwarded-proto=https` is passed
+
+Example for HTTPS proxy deployments:
+
+```yaml
+environment:
+  - ADMIN_SESSION_COOKIE_SECURE=true
+```
 
 ## SMB / NAS Shares
 
@@ -147,6 +164,7 @@ Important persistence note:
 | `DATA_DIR` | `/data` | Where to store the SQLite database and thumbnails |
 | `NAS_SHARE_PATH` | `/mnt/nas/videos` | Host path to your mounted NAS/media share |
 | `FACE_DETECTION_ENABLED` | `false` | Enable face detection (requires models in `$DATA_DIR/models/`) |
+| `ADMIN_SESSION_COOKIE_SECURE` | _(auto)_ | Force `Secure` flag for admin session cookie: `true`, `false`, or auto-detect from request HTTPS (`x-forwarded-proto=https`) |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | _(unset)_ | Base URL of your OTLP/HTTP collector – setting this enables OpenTelemetry |
 | `OTEL_SERVICE_NAME` | `ourtube` | Service name reported to the collector |
 | `OTEL_SDK_DISABLED` | `false` | Set to `true` to explicitly disable the SDK even if an endpoint is set |

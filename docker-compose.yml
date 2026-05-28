@@ -22,6 +22,7 @@ services:
     environment:
       - DATA_DIR=/data
       - PORT=${PORT:-3000}
+      - ADMIN_SESSION_COOKIE_SECURE=${ADMIN_SESSION_COOKIE_SECURE:-false}
       - FACE_DETECTION_ENABLED=false
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://opentelemetry:4318}
       - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-ourtube}

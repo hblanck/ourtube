@@ -82,8 +82,21 @@ function isAdminAuthenticated(req) {
   return !!getSessionFromRequest(req);
 }
 
-function setAdminCookie(res, token) {
-  const secure = process.env.NODE_ENV === 'production';
+function shouldUseSecureCookie(req) {
+  const override = String(process.env.ADMIN_SESSION_COOKIE_SECURE || '').trim().toLowerCase();
+  if (override === 'true') return true;
+  if (override === 'false') return false;
+
+  const forwardedProtoRaw = req?.headers?.['x-forwarded-proto'];
+  const forwardedProto = Array.isArray(forwardedProtoRaw)
+    ? String(forwardedProtoRaw[0] || '')
+    : String(forwardedProtoRaw || '').split(',')[0];
+
+  return req?.secure === true || forwardedProto.trim().toLowerCase() === 'https';
+}
+
+function setAdminCookie(req, res, token) {
+  const secure = shouldUseSecureCookie(req);
   res.setHeader('Set-Cookie', serializeCookie(ADMIN_SESSION_COOKIE, token, {
     httpOnly: true,
     maxAge: SESSION_TTL_MS / 1000,
@@ -93,8 +106,8 @@ function setAdminCookie(res, token) {
   }));
 }
 
-function clearAdminCookie(res) {
-  const secure = process.env.NODE_ENV === 'production';
+function clearAdminCookie(req, res) {
+  const secure = shouldUseSecureCookie(req);
   res.setHeader('Set-Cookie', serializeCookie(ADMIN_SESSION_COOKIE, '', {
     httpOnly: true,
     maxAge: 0,
@@ -139,7 +152,7 @@ function tryAuthenticateAdminKey(candidateKey) {
   return null;
 }
 
-function loginAdmin(res, keyId) {
+function loginAdmin(req, res, keyId) {
   const token = randomToken(24);
   const expiresAt = Date.now() + SESSION_TTL_MS;
   ACTIVE_SESSIONS.set(token, {
@@ -147,14 +160,14 @@ function loginAdmin(res, keyId) {
     createdAt: Date.now(),
     expiresAt,
   });
-  setAdminCookie(res, token);
+  setAdminCookie(req, res, token);
   return { expiresAt, sessionTtlMinutes: SESSION_TTL_MINUTES };
 }
 
 function logoutAdmin(req, res) {
   const token = parseCookies(req)[ADMIN_SESSION_COOKIE];
   if (token) ACTIVE_SESSIONS.delete(token);
-  clearAdminCookie(res);
+  clearAdminCookie(req, res);
 }
 
 function requireAdminAuth(req, res, next) {
