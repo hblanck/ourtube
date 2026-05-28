@@ -164,6 +164,7 @@ Important persistence note:
 | `DATA_DIR` | `/data` | Where to store the SQLite database and thumbnails |
 | `NAS_SHARE_PATH` | `/mnt/nas/videos` | Host path to your mounted NAS/media share |
 | `FACE_DETECTION_ENABLED` | `false` | Enable face detection (requires models in `$DATA_DIR/models/`) |
+| `STITCHED_PREFER_COMPATIBILITY` | _(auto)_ | Override stitched playback mode selection: `true` prefers compatibility streams, `false` prefers low-CPU concat first; default auto-enables on ARM/ARM64 hosts |
 | `ADMIN_SESSION_COOKIE_SECURE` | _(auto)_ | Force `Secure` flag for admin session cookie: `true`, `false`, or auto-detect from request HTTPS (`x-forwarded-proto=https`) |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | _(unset)_ | Base URL of your OTLP/HTTP collector – setting this enables OpenTelemetry |
 | `OTEL_SERVICE_NAME` | `ourtube` | Service name reported to the collector |
@@ -242,6 +243,20 @@ This is useful for:
 - Any scenario where related clips should be viewed together
 
 The stitched item retains metadata from the first clip and supports all standard playback features including subtitles and streaming.
+
+Playback mode behavior for stitched items:
+- On ARM/ARM64 systems (including Raspberry Pi), OurTube defaults to compatibility playback first for stitched videos to improve timeline/progress reliability.
+- On non-ARM hosts, stitched playback defaults to low-CPU concat-first behavior and falls back to compatibility mode if needed.
+- Set `STITCHED_PREFER_COMPATIBILITY=true` or `false` to override the default host-based behavior.
+
+Docker Compose override example:
+
+```yaml
+services:
+  ourtube:
+    environment:
+      - STITCHED_PREFER_COMPATIBILITY=true
+```
 
 ## Admin Audit Logs
 

@@ -29,6 +29,7 @@
   let hlsStartupRetryCount = 0;
   let transcodeStartupFallbackTimer = null;
   let transcodeStartupFallbackTried = false;
+  let concatDurationFallbackTimer = null;
   let pendingResumeSeconds = null;
   let hasAppliedResume = false;
   let lastProgressSavedAt = 0;
@@ -36,6 +37,7 @@
   let progressSaveInFlight = false;
   let latestProgressSavePromise = Promise.resolve();
   let externalBaseUrl = '';
+  let preferStitchedCompatibility = false;
   let pendingBookmarkTimeSeconds = null;
   let transcodeSourceGeneration = 0;
 
@@ -95,8 +97,10 @@
       if (!res.ok) return;
       const data = await res.json();
       externalBaseUrl = normalizeExternalBaseUrl(data?.external_base_url);
+      preferStitchedCompatibility = data?.stitched_prefer_compatibility === true;
     } catch {
       externalBaseUrl = '';
+      preferStitchedCompatibility = false;
     }
   }
 
@@ -433,6 +437,44 @@
     transcodeStartupFallbackTimer = null;
   }
 
+  function clearConcatDurationFallback() {
+    if (!concatDurationFallbackTimer) return;
+    clearTimeout(concatDurationFallbackTimer);
+    concatDurationFallbackTimer = null;
+  }
+
+  function hasInvalidConcatDuration() {
+    if (!player) return true;
+
+    const rawDuration = Number(player.duration());
+    if (!Number.isFinite(rawDuration) || rawDuration <= 0) return true;
+
+    const safeExpectedDuration = Math.max(0, Number(expectedDuration) || 0);
+    if (safeExpectedDuration <= 0) return false;
+
+    // Some fragmented concat outputs report a tiny/incorrect duration on certain ffmpeg builds.
+    return rawDuration < (safeExpectedDuration * 0.8);
+  }
+
+  function scheduleConcatDurationFallback(media) {
+    clearConcatDurationFallback();
+    if (!player || !media?.is_virtual) return;
+
+    concatDurationFallbackTimer = setTimeout(() => {
+      if (!player || compatibilityMode || compatibilityTransport !== 'none') return;
+      if (!hasInvalidConcatDuration()) return;
+
+      const warning = document.getElementById('playback-warning');
+      if (warning) {
+        warning.textContent = 'Stitched timeline metadata is unavailable. Switching to compatibility playback...';
+        warning.style.display = 'block';
+      }
+
+      setVideoSource(media, true);
+      player.play().catch(() => {});
+    }, 1600);
+  }
+
   function scheduleHlsStartupRetry(media) {
     clearHlsStartupRetry();
     if (!player || !media) return;
@@ -683,6 +725,7 @@
     transcodeFallbackTried = false;
     transcodeStartupFallbackTried = false;
     clearTranscodeStartupFallback();
+    clearConcatDurationFallback();
     expectedDuration = media.duration || 0;
     stitchedPlayback = !!media.is_virtual;
     stitchedSeekOffset = 0;
@@ -765,6 +808,7 @@
     if (!player) return;
     clearHlsStartupRetry();
     clearTranscodeStartupFallback();
+    clearConcatDurationFallback();
     compatibilityMode = useTranscode;
     compatibilityTransport = useTranscode ? (shouldUseHlsCompatibility(media) ? 'hls' : 'transcode') : 'none';
     stitchedTranscodeTimeOrigin = null;
@@ -801,6 +845,7 @@
       // Use the low-CPU concat stream (ffmpeg copy, no re-encode).
       // On error the existing fallback handler will retry with full transcode.
       player.src({ src: buildConcatUrl(media), type: 'video/mp4' });
+      scheduleConcatDurationFallback(media);
     } else {
       player.src({ src: `/stream/${media.id}`, type: getMime(media) });
     }
@@ -811,7 +856,7 @@
   function shouldPreferTranscode(media) {
     // Virtual/stitched media uses the low-CPU concat stream by default.
     // Incompatible codecs will trigger the error → transcode fallback automatically.
-    if (media.is_virtual) return false;
+    if (media.is_virtual) return preferStitchedCompatibility;
     const ext = (media.file_name || '').split('.').pop().toLowerCase();
     if (['mkv', 'avi', 'wmv', 'flv', 'mpg', 'mpeg', '3gp'].includes(ext)) return true;
     return !canPlayDirectly(media);
@@ -858,6 +903,7 @@
     stitchedPlayback = false;
     stitchedSeekOffset = 0;
     stitchedSegmentTimeline = [];
+    clearConcatDurationFallback();
     updateStitchedProgress();
     updateCurrentClipWatermark();
     const photoContainer = document.getElementById('photo-container');
