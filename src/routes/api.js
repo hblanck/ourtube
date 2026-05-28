@@ -44,8 +44,8 @@ function shouldPreferStitchedCompatibilityPlayback() {
   const override = parseBooleanEnv(process.env.STITCHED_PREFER_COMPATIBILITY);
   if (override !== null) return override;
 
-  // On Raspberry Pi and other ARM hosts, concat stream metadata is more likely to be unreliable.
-  return process.arch === 'arm' || process.arch === 'arm64';
+  // Default to low-CPU concat-first playback unless explicitly overridden.
+  return false;
 }
 
 function normalizeExternalBaseUrl(value) {
