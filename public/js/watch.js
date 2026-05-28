@@ -36,6 +36,7 @@
   let progressSaveInFlight = false;
   let latestProgressSavePromise = Promise.resolve();
   let externalBaseUrl = '';
+  let pendingBookmarkTimeSeconds = null;
 
   const CLIP_WATERMARK_STORAGE_KEY = 'watch_stitched_clip_watermark';
   const CLIP_WATERMARK_MODE_STORAGE_KEY = 'watch_stitched_clip_watermark_mode';
@@ -185,6 +186,7 @@
   function closeBookmarkDialog() {
     const modal = document.getElementById('bookmark-modal');
     if (modal) modal.classList.remove('open');
+    pendingBookmarkTimeSeconds = null;
   }
 
   function openBookmarkDialog() {
@@ -194,7 +196,8 @@
     const currentTime = document.getElementById('bookmark-dialog-time');
     if (!modal || !form || !currentTime) return;
 
-    currentTime.textContent = fmtDur(Math.max(0, Number(getTimelineCurrentTime()) || 0));
+    pendingBookmarkTimeSeconds = Math.max(0, Number(getTimelineCurrentTime()) || 0);
+    currentTime.textContent = fmtDur(pendingBookmarkTimeSeconds);
     modal.classList.add('open');
     const title = form.querySelector('[name="title"]');
     if (title) title.focus();
@@ -410,6 +413,10 @@
     // Keep parity with transcode URL cache-busting behavior.
     url.searchParams.set('_ts', String(Date.now()));
     return url.pathname + url.search;
+  }
+
+  function buildConcatUrl(media) {
+    return `/stream/${media.id}/concat`;
   }
 
   function clearHlsStartupRetry() {
@@ -774,13 +781,21 @@
     }
     const warning = document.getElementById('playback-warning');
     if (warning) warning.style.display = 'none';
-    player.src({ src: `/stream/${media.id}`, type: getMime(media) });
+    if (media.is_virtual) {
+      // Use the low-CPU concat stream (ffmpeg copy, no re-encode).
+      // On error the existing fallback handler will retry with full transcode.
+      player.src({ src: buildConcatUrl(media), type: 'video/mp4' });
+    } else {
+      player.src({ src: `/stream/${media.id}`, type: getMime(media) });
+    }
     updateStitchedProgress();
     updateCurrentClipWatermark();
   }
 
   function shouldPreferTranscode(media) {
-    if (media.is_virtual) return true;
+    // Virtual/stitched media uses the low-CPU concat stream by default.
+    // Incompatible codecs will trigger the error → transcode fallback automatically.
+    if (media.is_virtual) return false;
     const ext = (media.file_name || '').split('.').pop().toLowerCase();
     if (['mkv', 'avi', 'wmv', 'flv', 'mpg', 'mpeg', '3gp'].includes(ext)) return true;
     return !canPlayDirectly(media);
@@ -1230,7 +1245,12 @@
         .map(tag => tag.trim())
         .filter(Boolean);
 
-      const timeSeconds = Math.max(0, Number(getTimelineCurrentTime()) || 0);
+      const timeSeconds = Math.max(
+        0,
+        Number.isFinite(Number(pendingBookmarkTimeSeconds))
+          ? Number(pendingBookmarkTimeSeconds)
+          : Number(getTimelineCurrentTime()) || 0
+      );
       const res = await fetch(`/api/media/${encodeURIComponent(currentMedia.id)}/bookmarks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

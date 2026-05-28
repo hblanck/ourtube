@@ -720,6 +720,105 @@ router.get('/:id/transcode', (req, res) => {
   pass.pipe(res, { end: true });
 });
 
+// GET /stream/:id/concat  - low-CPU stream for virtual/stitched videos using stream copy (no re-encode)
+// ffmpeg concatenates segments and remuxes to fragmented MP4. Near-zero CPU vs. full transcode.
+// Falls back to /transcode automatically via client-side error handler if codecs are incompatible.
+router.get('/:id/concat', (req, res) => {
+  if (checkClientBlocked(req, res)) return;
+  telemetry.recordStreamRequest();
+  const requestStartedAt = Date.now();
+
+  if (!isVirtualMediaId(req.params.id)) {
+    return res.status(400).json({ error: 'Concat stream is available for virtual videos only' });
+  }
+
+  const db = getDb();
+  const virtualSegments = getVirtualSegmentRows(db, req.params.id, req);
+  if (!virtualSegments) return res.status(404).json({ error: 'Not found' });
+
+  const concatListPath = createConcatListFile(virtualSegments.map(row => row.file_path));
+
+  const sessionId = upsertSession({
+    mediaId: req.params.id,
+    title: path.basename(path.dirname(virtualSegments[0].file_path) || virtualSegments[0].file_name),
+    type: 'direct',
+    ip: req.ip || req.socket?.remoteAddress || 'unknown',
+    userAgent: req.headers['user-agent'] || '',
+  });
+
+  res.writeHead(200, {
+    'Content-Type': 'video/mp4',
+    'Cache-Control': 'no-store',
+    'Connection': 'keep-alive',
+    'Transfer-Encoding': 'chunked',
+  });
+
+  let stopped = false;
+  let cleanedUp = false;
+  let bytesSent = 0;
+  let recordedStartup = false;
+  const diag = createFfmpegDiagnostics(`concat ${req.params.id}`);
+
+  const cleanup = () => {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    cleanupFile(concatListPath);
+  };
+
+  const cmd = ffmpeg()
+    .input(concatListPath)
+    .inputOptions(['-f concat', '-safe 0'])
+    .outputOptions([
+      '-c copy',
+      '-movflags frag_keyframe+empty_moov+default_base_moof',
+      '-frag_duration 1000000',
+    ])
+    .format('mp4')
+    .on('start', commandLine => diag.onStart(commandLine))
+    .on('stderr', line => diag.onStderr(line))
+    .on('end', () => {
+      cleanup();
+      touchSession(sessionId);
+      console.info(`[stream] concat finish id=${req.params.id} bytes=${bytesSent}`);
+    })
+    .on('error', err => {
+      cleanup();
+      if (stopped && isIntentionalKillError(err)) return;
+      diag.logErrorContext(err);
+      console.error('[stream] Concat stream error:', err.message);
+      if (!res.writableEnded) res.end();
+    });
+
+  const stopCmd = () => {
+    if (stopped) return;
+    stopped = true;
+    touchSession(sessionId);
+    cleanup();
+    try { cmd.kill('SIGKILL'); } catch { /* ignore */ }
+  };
+
+  req.on('aborted', stopCmd);
+  res.on('close', () => {
+    if (!res.writableEnded) stopCmd();
+    else { touchSession(sessionId); cleanup(); }
+  });
+  res.on('finish', () => { touchSession(sessionId); cleanup(); });
+
+  const pass = new PassThrough();
+  pass.on('data', chunk => {
+    if (!recordedStartup) {
+      recordedStartup = true;
+      telemetry.recordPlaybackStartup((Date.now() - requestStartedAt) / 1000, { mode: 'virtual_concat' });
+    }
+    bytesSent += chunk.length;
+    addBytes(sessionId, chunk.length);
+    telemetry.recordStreamBytes(chunk.length);
+  });
+
+  cmd.pipe(pass, { end: true });
+  pass.pipe(res, { end: true });
+});
+
 // GET /stream/:id  - HTTP range-supporting video stream (read-only)
 router.get('/:id', (req, res) => {
   if (checkClientBlocked(req, res)) return;
