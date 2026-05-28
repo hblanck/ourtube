@@ -37,6 +37,7 @@
   let latestProgressSavePromise = Promise.resolve();
   let externalBaseUrl = '';
   let pendingBookmarkTimeSeconds = null;
+  let transcodeSourceGeneration = 0;
 
   const CLIP_WATERMARK_STORAGE_KEY = 'watch_stitched_clip_watermark';
   const CLIP_WATERMARK_MODE_STORAGE_KEY = 'watch_stitched_clip_watermark_mode';
@@ -391,7 +392,8 @@
 
     if (stitchedPlayback && compatibilityMode && compatibilityTransport === 'transcode') {
       if (!Number.isFinite(stitchedTranscodeTimeOrigin)) {
-        stitchedTranscodeTimeOrigin = safeCurrent;
+        // Origin not yet latched — source still loading; show seek offset position.
+        return stitchedSeekOffset;
       }
       const elapsedSinceSourceAttach = Math.max(0, safeCurrent - stitchedTranscodeTimeOrigin);
       return stitchedSeekOffset + elapsedSinceSourceAttach;
@@ -534,6 +536,13 @@
     stitchedSeekOffset = clamped;
     stitchedTranscodeTimeOrigin = null;
     player.src({ src: buildTranscodeUrl(currentMedia, clamped), type: 'video/mp4' });
+    const seekGen = ++transcodeSourceGeneration;
+    player.one('loadeddata', () => {
+      if (transcodeSourceGeneration !== seekGen) return;
+      const t = Number(player.currentTime());
+      stitchedTranscodeTimeOrigin = Number.isFinite(t) && t >= 0 ? t : 0;
+      syncCompatibilityDurationUi();
+    });
     syncCompatibilityDurationUi();
 
     if (!wasPaused) {
@@ -775,6 +784,13 @@
 
       const startSeconds = (stitchedPlayback && compatibilityMode && compatibilityTransport === 'transcode') ? stitchedSeekOffset : 0;
       player.src({ src: buildTranscodeUrl(media, startSeconds), type: 'video/mp4' });
+      const transcodeGen = ++transcodeSourceGeneration;
+      player.one('loadeddata', () => {
+        if (transcodeSourceGeneration !== transcodeGen) return;
+        const t = Number(player.currentTime());
+        stitchedTranscodeTimeOrigin = Number.isFinite(t) && t >= 0 ? t : 0;
+        syncCompatibilityDurationUi();
+      });
       scheduleTranscodeStartupFallback(media);
       syncCompatibilityDurationUi();
       return;
