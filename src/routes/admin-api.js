@@ -214,6 +214,114 @@ function parseBookmarkTags(rawTags) {
   }
 }
 
+function quoteIdentifier(identifier) {
+  return `"${String(identifier).replace(/"/g, '""')}"`;
+}
+
+function quoteSqlValue(value) {
+  if (value == null) return 'NULL';
+  if (Buffer.isBuffer(value)) return `X'${value.toString('hex')}'`;
+  if (typeof value === 'number') return Number.isFinite(value) ? String(value) : 'NULL';
+  if (typeof value === 'boolean') return value ? '1' : '0';
+  return `'${String(value).replace(/'/g, "''")}'`;
+}
+
+function isSafeIdentifier(value) {
+  return typeof value === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(value);
+}
+
+function listUserTables(db) {
+  return db.prepare(
+    `SELECT name
+       FROM sqlite_master
+      WHERE type = 'table'
+        AND name NOT LIKE 'sqlite_%'
+      ORDER BY name ASC`
+  ).all().map(row => row.name);
+}
+
+function getValidatedTableName(db, inputName) {
+  if (!isSafeIdentifier(inputName)) return null;
+  const exists = db.prepare(
+    `SELECT 1 AS ok FROM sqlite_master
+      WHERE type = 'table'
+        AND name = ?
+        AND name NOT LIKE 'sqlite_%'`
+  ).get(inputName);
+  return exists ? inputName : null;
+}
+
+function getTableColumns(db, tableName) {
+  return db.prepare(`PRAGMA table_info(${quoteIdentifier(tableName)})`).all();
+}
+
+function buildInsertStatement(tableName, columns, row) {
+  const columnSql = columns.map(col => quoteIdentifier(col)).join(', ');
+  const valueSql = columns.map(col => quoteSqlValue(row[col])).join(', ');
+  return `INSERT INTO ${quoteIdentifier(tableName)} (${columnSql}) VALUES (${valueSql});`;
+}
+
+function exportTableSql(db, tableName, rowFilter = null) {
+  const schemaRow = db.prepare(
+    `SELECT sql
+       FROM sqlite_master
+      WHERE type = 'table'
+        AND name = ?`
+  ).get(tableName);
+  if (!schemaRow?.sql) return '';
+
+  const columns = getTableColumns(db, tableName).map(col => col.name);
+  if (!columns.length) return '';
+
+  let rows;
+  if (rowFilter && Array.isArray(rowFilter.rowids) && rowFilter.rowids.length) {
+    const placeholders = rowFilter.rowids.map(() => '?').join(', ');
+    rows = db.prepare(
+      `SELECT ${columns.map(col => quoteIdentifier(col)).join(', ')}
+         FROM ${quoteIdentifier(tableName)}
+        WHERE rowid IN (${placeholders})
+        ORDER BY rowid ASC`
+    ).all(...rowFilter.rowids);
+  } else {
+    rows = db.prepare(
+      `SELECT ${columns.map(col => quoteIdentifier(col)).join(', ')}
+         FROM ${quoteIdentifier(tableName)}
+        ORDER BY rowid ASC`
+    ).all();
+  }
+
+  const lines = [];
+  lines.push(`${schemaRow.sql};`);
+  for (const row of rows) {
+    lines.push(buildInsertStatement(tableName, columns, row));
+  }
+
+  const extras = db.prepare(
+    `SELECT sql
+       FROM sqlite_master
+      WHERE tbl_name = ?
+        AND type IN ('index', 'trigger', 'view')
+        AND sql IS NOT NULL
+      ORDER BY type ASC, name ASC`
+  ).all(tableName);
+  for (const item of extras) {
+    lines.push(`${item.sql};`);
+  }
+
+  return lines.join('\n');
+}
+
+function exportDatabaseSql(db) {
+  const tables = listUserTables(db);
+  const chunks = ['BEGIN TRANSACTION;'];
+  for (const tableName of tables) {
+    const tableDump = exportTableSql(db, tableName);
+    if (tableDump) chunks.push(tableDump);
+  }
+  chunks.push('COMMIT;');
+  return `${chunks.join('\n\n')}\n`;
+}
+
 // GET /api/admin/media-root/browse?path=/media/subdir
 router.get('/media-root/browse', (req, res) => {
   const requestedPath = typeof req.query.path === 'string' && req.query.path.trim()
@@ -1010,6 +1118,136 @@ router.delete('/faces/:id', (req, res) => {
     .run(face.media_id, face.media_id);
 
   res.json({ success: true });
+});
+
+// GET /api/admin/database/tables
+router.get('/database/tables', (req, res) => {
+  const db = getDb();
+  const tables = listUserTables(db).map(name => {
+    const count = db.prepare(`SELECT COUNT(*) AS cnt FROM ${quoteIdentifier(name)}`).get().cnt;
+    return { name, rowCount: Number(count || 0) };
+  });
+  res.json({ tables });
+});
+
+// GET /api/admin/database/tables/:table/rows
+router.get('/database/tables/:table/rows', (req, res) => {
+  const db = getDb();
+  const tableName = getValidatedTableName(db, req.params.table);
+  if (!tableName) return res.status(400).json({ error: 'Invalid table name' });
+
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 50));
+  const offset = (page - 1) * limit;
+
+  const columns = getTableColumns(db, tableName).map(col => col.name);
+  if (!columns.length) return res.json({ table: tableName, columns: [], rows: [], total: 0, page, limit });
+
+  const total = db.prepare(`SELECT COUNT(*) AS cnt FROM ${quoteIdentifier(tableName)}`).get().cnt;
+  const rows = db.prepare(
+    `SELECT rowid AS _rowid, ${columns.map(col => quoteIdentifier(col)).join(', ')}
+       FROM ${quoteIdentifier(tableName)}
+      ORDER BY rowid DESC
+      LIMIT ? OFFSET ?`
+  ).all(limit, offset);
+
+  res.json({
+    table: tableName,
+    columns: ['_rowid', ...columns],
+    rows,
+    total: Number(total || 0),
+    page,
+    limit,
+  });
+});
+
+// PUT /api/admin/database/tables/:table/rows/:rowid
+router.put('/database/tables/:table/rows/:rowid', (req, res) => {
+  const db = getDb();
+  const tableName = getValidatedTableName(db, req.params.table);
+  if (!tableName) return res.status(400).json({ error: 'Invalid table name' });
+
+  const rowid = Number(req.params.rowid);
+  if (!Number.isInteger(rowid) || rowid <= 0) return res.status(400).json({ error: 'Invalid row id' });
+
+  const payload = req.body;
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return res.status(400).json({ error: 'Invalid payload' });
+  }
+
+  const tableColumns = new Set(getTableColumns(db, tableName).map(col => col.name));
+  const updates = Object.entries(payload).filter(([key]) => key !== '_rowid' && tableColumns.has(key));
+  if (!updates.length) return res.status(400).json({ error: 'No valid columns provided' });
+
+  const setClause = updates.map(([key]) => `${quoteIdentifier(key)} = ?`).join(', ');
+  const values = updates.map(([, value]) => value);
+  const updateResult = db.prepare(
+    `UPDATE ${quoteIdentifier(tableName)}
+        SET ${setClause}
+      WHERE rowid = ?`
+  ).run(...values, rowid);
+  if (!updateResult.changes) return res.status(404).json({ error: 'Row not found' });
+
+  const row = db.prepare(
+    `SELECT rowid AS _rowid, *
+       FROM ${quoteIdentifier(tableName)}
+      WHERE rowid = ?`
+  ).get(rowid);
+  res.json({ row });
+});
+
+// POST /api/admin/database/export
+router.post('/database/export', (req, res) => {
+  const db = getDb();
+  const { scope = 'database', table, rowids } = req.body || {};
+
+  let sql = '';
+  let filename = `ourtube-db-${new Date().toISOString().slice(0, 10)}.sql`;
+
+  if (scope === 'database') {
+    sql = exportDatabaseSql(db);
+  } else if (scope === 'table') {
+    const tableName = getValidatedTableName(db, table);
+    if (!tableName) return res.status(400).json({ error: 'Invalid table name' });
+    sql = exportTableSql(db, tableName);
+    filename = `ourtube-table-${tableName}-${new Date().toISOString().slice(0, 10)}.sql`;
+  } else if (scope === 'records') {
+    const tableName = getValidatedTableName(db, table);
+    if (!tableName) return res.status(400).json({ error: 'Invalid table name' });
+    const safeRowids = Array.isArray(rowids)
+      ? rowids.map(v => Number(v)).filter(v => Number.isInteger(v) && v > 0)
+      : [];
+    if (!safeRowids.length) return res.status(400).json({ error: 'rowids must be a non-empty array of positive integers' });
+    sql = exportTableSql(db, tableName, { rowids: safeRowids });
+    filename = `ourtube-records-${tableName}-${new Date().toISOString().slice(0, 10)}.sql`;
+  } else {
+    return res.status(400).json({ error: 'Invalid export scope' });
+  }
+
+  res.setHeader('Content-Type', 'application/sql; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.send(sql);
+});
+
+// POST /api/admin/database/import
+router.post('/database/import', (req, res) => {
+  const db = getDb();
+  const sql = String(req.body?.sql || '');
+  if (!sql.trim()) return res.status(400).json({ error: 'sql is required' });
+  if (sql.length > 10 * 1024 * 1024) return res.status(400).json({ error: 'sql payload is too large' });
+  if (/\b(attach|detach|load_extension)\b/i.test(sql)) {
+    return res.status(400).json({ error: 'Forbidden SQL statement in import payload' });
+  }
+
+  try {
+    db.prepare('PRAGMA foreign_keys = OFF').run();
+    db.exec(sql);
+    db.prepare('PRAGMA foreign_keys = ON').run();
+    res.json({ success: true });
+  } catch (err) {
+    try { db.prepare('PRAGMA foreign_keys = ON').run(); } catch {}
+    res.status(400).json({ error: `Import failed: ${err.message}` });
+  }
 });
 
 // GET /api/admin/settings
