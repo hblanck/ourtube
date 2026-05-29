@@ -40,6 +40,15 @@
   let preferStitchedCompatibility = false;
   let pendingBookmarkTimeSeconds = null;
   let transcodeSourceGeneration = 0;
+  let forcedCompatibilityTransport = null;
+  let adminPlaybackModePreference = 'auto';
+  let diagnosticsInterval = null;
+  let runtimeStats = {
+    waitingCount: 0,
+    stalledCount: 0,
+    errorCount: 0,
+    lastError: ''
+  };
 
   const CLIP_WATERMARK_STORAGE_KEY = 'watch_stitched_clip_watermark';
   const CLIP_WATERMARK_MODE_STORAGE_KEY = 'watch_stitched_clip_watermark_mode';
@@ -47,6 +56,7 @@
   const PROGRESS_MIN_POSITION_DELTA_SECONDS = 3;
   const PROGRESS_RESUME_MIN_SECONDS = 5;
   const PROGRESS_RESUME_END_THRESHOLD_SECONDS = 8;
+  const ADMIN_DIAGNOSTICS_REFRESH_MS = 1000;
 
   function escHtml(str) {
     return String(str || '')
@@ -425,6 +435,109 @@
     return `/stream/${media.id}/concat`;
   }
 
+  function getEffectivePlaybackTransport(media, useTranscode) {
+    if (!useTranscode) return 'none';
+    if (forcedCompatibilityTransport) return forcedCompatibilityTransport;
+    return shouldUseHlsCompatibility(media) ? 'hls' : 'transcode';
+  }
+
+  function parsePlaybackModeSelection(media) {
+    const mode = String(adminPlaybackModePreference || 'auto').toLowerCase();
+    if (mode === 'direct') return { useTranscode: false, transport: 'none' };
+    if (mode === 'transcode') return { useTranscode: true, transport: 'transcode' };
+    if (mode === 'hls') return { useTranscode: true, transport: 'hls' };
+    const useTranscode = shouldPreferTranscode(media);
+    return { useTranscode, transport: getEffectivePlaybackTransport(media, useTranscode) };
+  }
+
+  function applyPreferredPlaybackMode(media, { preservePosition = false } = {}) {
+    if (!player || !media || media.type !== 'video') return;
+
+    const { useTranscode, transport } = parsePlaybackModeSelection(media);
+    const shouldResume = preservePosition ? !player.paused() : null;
+    const resumeAt = preservePosition ? Math.max(0, Number(getTimelineCurrentTime()) || 0) : 0;
+
+    forcedCompatibilityTransport = adminPlaybackModePreference === 'auto' ? null : transport;
+    if (stitchedPlayback && useTranscode && transport === 'transcode') {
+      stitchedSeekOffset = resumeAt;
+      stitchedTranscodeTimeOrigin = null;
+    }
+
+    setVideoSource(media, useTranscode);
+
+    if (preservePosition && resumeAt > 0 && !(stitchedPlayback && useTranscode && transport === 'transcode')) {
+      const seekOnce = () => {
+        try {
+          player.currentTime(resumeAt);
+        } catch {
+          // Ignore source race while changing playback transport.
+        }
+      };
+      player.one('loadedmetadata', seekOnce);
+      player.one('canplay', seekOnce);
+    }
+
+    if (shouldResume) player.play().catch(() => {});
+    updateAdminDiagnostics();
+  }
+
+  function getVideoCodec(media) {
+    return (media?.codec || media?.raw_metadata?.streams?.find(stream => stream.codec_type === 'video')?.codec_name || '').toLowerCase();
+  }
+
+  function parseFrameRate(rawRate) {
+    const value = String(rawRate || '').trim();
+    if (!value || value === '0/0') return '';
+    if (!value.includes('/')) {
+      const numeric = Number(value);
+      return Number.isFinite(numeric) && numeric > 0 ? numeric.toFixed(2) : '';
+    }
+    const [numRaw, denRaw] = value.split('/');
+    const num = Number(numRaw);
+    const den = Number(denRaw);
+    if (!Number.isFinite(num) || !Number.isFinite(den) || den <= 0) return '';
+    const fps = num / den;
+    return Number.isFinite(fps) && fps > 0 ? fps.toFixed(2) : '';
+  }
+
+  function getCurrentBufferAheadSeconds() {
+    if (!player) return 0;
+    const current = Math.max(0, Number(player.currentTime()) || 0);
+    const buffered = player.buffered();
+    if (!buffered || typeof buffered.length !== 'number') return 0;
+
+    for (let i = 0; i < buffered.length; i += 1) {
+      const start = Number(buffered.start(i));
+      const end = Number(buffered.end(i));
+      if (Number.isFinite(start) && Number.isFinite(end) && start <= current && current <= end) {
+        return Math.max(0, end - current);
+      }
+    }
+    return 0;
+  }
+
+  function getVideoFrameStats() {
+    const videoEl = player?.el()?.querySelector('video');
+    if (!videoEl) return { dropped: null, total: null };
+
+    if (typeof videoEl.getVideoPlaybackQuality === 'function') {
+      const quality = videoEl.getVideoPlaybackQuality();
+      const dropped = Number(quality?.droppedVideoFrames);
+      const total = Number(quality?.totalVideoFrames);
+      return {
+        dropped: Number.isFinite(dropped) ? dropped : null,
+        total: Number.isFinite(total) ? total : null
+      };
+    }
+
+    const dropped = Number(videoEl.webkitDroppedFrameCount);
+    const total = Number(videoEl.webkitDecodedFrameCount);
+    return {
+      dropped: Number.isFinite(dropped) ? dropped : null,
+      total: Number.isFinite(total) ? total : null
+    };
+  }
+
   function clearHlsStartupRetry() {
     if (!hlsStartupRetryTimer) return;
     clearTimeout(hlsStartupRetryTimer);
@@ -734,12 +847,20 @@
     hasAppliedResume = false;
     lastProgressSavedAt = 0;
     lastProgressSavedPosition = 0;
+    runtimeStats = {
+      waitingCount: 0,
+      stalledCount: 0,
+      errorCount: 0,
+      lastError: ''
+    };
     bindStitchedProgressEvents();
     updateStitchedProgress();
     updateCurrentClipWatermark();
+    syncAdminDiagnosticsVisibility(media);
 
     if (player) {
-      setVideoSource(media, shouldPreferTranscode(media));
+      applyPreferredPlaybackMode(media);
+      syncAdminDiagnosticsVisibility(media);
       return;
     }
 
@@ -776,12 +897,36 @@
       updateStitchedProgress();
       updateCurrentClipWatermark();
       applyResumeIfReady();
+      updateAdminDiagnostics();
     });
     player.on('ended', () => {
       savePlaybackProgress({ force: true, markCompleted: true });
+      updateAdminDiagnostics();
     });
+    player.on('waiting', () => {
+      runtimeStats.waitingCount += 1;
+      updateAdminDiagnostics();
+    });
+    player.on('stalled', () => {
+      runtimeStats.stalledCount += 1;
+      updateAdminDiagnostics();
+    });
+    player.on('loadedmetadata', updateAdminDiagnostics);
+    player.on('durationchange', updateAdminDiagnostics);
+    player.on('timeupdate', updateAdminDiagnostics);
+    player.on('ratechange', updateAdminDiagnostics);
+    player.on('volumechange', updateAdminDiagnostics);
+    player.on('seeking', updateAdminDiagnostics);
+    player.on('seeked', updateAdminDiagnostics);
+    player.on('pause', updateAdminDiagnostics);
 
     player.on('error', () => {
+      runtimeStats.errorCount += 1;
+      const error = player.error?.();
+      const errorText = error?.message || (error?.code ? `code ${error.code}` : '');
+      runtimeStats.lastError = errorText ? String(errorText) : 'unknown playback error';
+      updateAdminDiagnostics();
+
       if (!transcodeFallbackTried && compatibilityTransport !== 'transcode') {
         transcodeFallbackTried = true;
         const warning = document.getElementById('playback-warning');
@@ -801,7 +946,7 @@
       }
     });
 
-    setVideoSource(media, shouldPreferTranscode(media));
+    applyPreferredPlaybackMode(media);
   }
 
   function setVideoSource(media, useTranscode) {
@@ -810,7 +955,7 @@
     clearTranscodeStartupFallback();
     clearConcatDurationFallback();
     compatibilityMode = useTranscode;
-    compatibilityTransport = useTranscode ? (shouldUseHlsCompatibility(media) ? 'hls' : 'transcode') : 'none';
+    compatibilityTransport = getEffectivePlaybackTransport(media, useTranscode);
     stitchedTranscodeTimeOrigin = null;
     const compatibilityBadge = document.getElementById('compatibility-badge');
     if (compatibilityBadge) compatibilityBadge.style.display = useTranscode ? 'block' : 'none';
@@ -906,6 +1051,7 @@
     clearConcatDurationFallback();
     updateStitchedProgress();
     updateCurrentClipWatermark();
+    syncAdminDiagnosticsVisibility(media);
     const photoContainer = document.getElementById('photo-container');
     photoContainer.style.display = '';
     const img = document.getElementById('photo-img');
@@ -1112,7 +1258,125 @@
         ).join('')}</div>`;
     }
 
+    renderAdminPlaybackModeControl(media);
     bindShareVideoButton();
+  }
+
+  function getAvailablePlaybackModes(media) {
+    if (!media || media.type !== 'video') return ['auto'];
+    const modes = ['auto', 'direct', 'transcode'];
+    if (media.is_virtual) modes.push('hls');
+    return modes;
+  }
+
+  function renderAdminPlaybackModeControl(media) {
+    const wrap = document.getElementById('admin-playback-mode-control');
+    const select = document.getElementById('admin-playback-mode-select');
+    if (!wrap || !select) return;
+
+    if (!adminModeEnabled || !media || media.type !== 'video') {
+      wrap.style.display = 'none';
+      return;
+    }
+
+    const allowedModes = getAvailablePlaybackModes(media);
+    Array.from(select.options).forEach(option => {
+      option.hidden = !allowedModes.includes(option.value);
+    });
+
+    if (!allowedModes.includes(adminPlaybackModePreference)) {
+      adminPlaybackModePreference = 'auto';
+    }
+    select.value = adminPlaybackModePreference;
+    wrap.style.display = 'inline-flex';
+  }
+
+  function updateAdminDiagnostics() {
+    const diagnostics = document.getElementById('admin-player-diagnostics');
+    const diagnosticsBody = document.getElementById('admin-player-diagnostics-body');
+    if (!diagnostics || !diagnosticsBody) return;
+
+    if (!adminModeEnabled || !currentMedia || currentMedia.type !== 'video' || !player) {
+      diagnostics.style.display = 'none';
+      return;
+    }
+
+    diagnostics.style.display = 'block';
+
+    const formatInfo = currentMedia.raw_metadata?.format || {};
+    const videoStream = Array.isArray(currentMedia.raw_metadata?.streams)
+      ? currentMedia.raw_metadata.streams.find(stream => stream.codec_type === 'video')
+      : null;
+    const audioStream = Array.isArray(currentMedia.raw_metadata?.streams)
+      ? currentMedia.raw_metadata.streams.find(stream => stream.codec_type === 'audio')
+      : null;
+    const frameRate = parseFrameRate(videoStream?.avg_frame_rate || videoStream?.r_frame_rate);
+    const frameStats = getVideoFrameStats();
+    const droppedFrames = frameStats.dropped != null && frameStats.total != null
+      ? `${frameStats.dropped}/${frameStats.total}`
+      : 'n/a';
+    const source = player.currentSource?.() || {};
+    const timelineCurrent = Math.max(0, Number(getTimelineCurrentTime()) || 0);
+    const duration = Math.max(0, Number(expectedDuration || player.duration()) || 0);
+    const bufferAhead = getCurrentBufferAheadSeconds();
+    const selectedMode = adminPlaybackModePreference;
+    const activeMode = compatibilityMode
+      ? `compat:${compatibilityTransport}`
+      : (stitchedPlayback ? 'direct:concat' : 'direct:file');
+    const bitrate = Number(formatInfo.bit_rate || videoStream?.bit_rate || 0);
+
+    const lines = [
+      `Mode selected: ${selectedMode} | active: ${activeMode}`,
+      `Media: ${currentMedia.id} | type: ${currentMedia.type}${currentMedia.is_virtual ? ` | segments: ${currentMedia.segment_count || 0}` : ''}`,
+      `Video: ${getVideoCodec(currentMedia) || 'unknown'}${frameRate ? ` @ ${frameRate} fps` : ''} | Audio: ${(audioStream?.codec_name || 'unknown').toLowerCase()}`,
+      `Container: ${(currentMedia.format || formatInfo.format_name || 'unknown')} | Resolution: ${currentMedia.width || '?'}x${currentMedia.height || '?'}`,
+      `Bitrate: ${bitrate > 0 ? `${Math.round(bitrate / 1000)} kbps` : 'n/a'} | Duration: ${fmtDur(duration)} | Pos: ${fmtDur(timelineCurrent)}`,
+      `Buffer ahead: ${bufferAhead.toFixed(2)}s | Rate: ${(Number(player.playbackRate()) || 1).toFixed(2)}x | Volume: ${Math.round((Number(player.volume()) || 0) * 100)}%`,
+      `ReadyState: ${Number(player.readyState?.() || 0)} | NetworkState: ${Number(player.networkState?.() || 0)} | Paused: ${player.paused() ? 'yes' : 'no'}`,
+      `Frames dropped/total: ${droppedFrames} | waiting: ${runtimeStats.waitingCount} | stalled: ${runtimeStats.stalledCount} | errors: ${runtimeStats.errorCount}`,
+      `Source: ${source.type || 'n/a'} ${source.src || ''}`,
+      runtimeStats.lastError ? `Last error: ${runtimeStats.lastError}` : 'Last error: none'
+    ];
+
+    diagnosticsBody.textContent = lines.join('\n');
+  }
+
+  function startAdminDiagnosticsLoop() {
+    if (diagnosticsInterval) return;
+    diagnosticsInterval = setInterval(updateAdminDiagnostics, ADMIN_DIAGNOSTICS_REFRESH_MS);
+  }
+
+  function stopAdminDiagnosticsLoop() {
+    if (!diagnosticsInterval) return;
+    clearInterval(diagnosticsInterval);
+    diagnosticsInterval = null;
+  }
+
+  function syncAdminDiagnosticsVisibility(media = currentMedia) {
+    renderAdminPlaybackModeControl(media);
+    if (adminModeEnabled && media && media.type === 'video' && player) {
+      startAdminDiagnosticsLoop();
+      updateAdminDiagnostics();
+      return;
+    }
+    stopAdminDiagnosticsLoop();
+    updateAdminDiagnostics();
+  }
+
+  function bindAdminPlaybackModeControl() {
+    const select = document.getElementById('admin-playback-mode-select');
+    if (!select || select.dataset.bound === '1') return;
+
+    select.addEventListener('change', () => {
+      adminPlaybackModePreference = select.value || 'auto';
+      if (currentMedia && currentMedia.type === 'video' && player) {
+        applyPreferredPlaybackMode(currentMedia, { preservePosition: true });
+      } else {
+        syncAdminDiagnosticsVisibility(currentMedia);
+      }
+    });
+
+    select.dataset.bound = '1';
   }
 
   function updateHeaderBookmarksDropdown(items, media) {
@@ -1585,6 +1849,7 @@
     bindBookmarkActions();
     bindBookmarkDialog();
     bindCommentForm();
+    bindAdminPlaybackModeControl();
 
     const adminStatus = window.OurTubeAdminMode?.status?.();
     adminModeEnabled = !!adminStatus?.authenticated;
@@ -1597,6 +1862,7 @@
         if (grid) grid.innerHTML = '';
         loadRelated(currentMedia);
       }
+      syncAdminDiagnosticsVisibility(currentMedia);
     });
 
     // Check blocked status before attempting to load/play media
@@ -1634,6 +1900,7 @@
   }
 
   window.addEventListener('pagehide', () => {
+    stopAdminDiagnosticsLoop();
     savePlaybackProgress({ force: true });
   });
 
