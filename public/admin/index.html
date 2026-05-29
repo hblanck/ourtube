@@ -30,6 +30,7 @@
       <a class="admin-nav-link" data-tab="library">🗂 Media Library</a>
       <a class="admin-nav-link" data-tab="bookmarks">📌 Bookmarks</a>
       <a class="admin-nav-link" data-tab="session-log">📋 Session Log</a>
+      <a class="admin-nav-link" data-tab="database">🗄️ Database Management</a>
       <a class="admin-nav-link" data-tab="settings">⚙️ Settings</a>
     </nav>
 
@@ -354,6 +355,45 @@
       </section>
 
       <!-- Settings -->
+      <section class="admin-section" id="tab-database">
+        <div class="admin-toolbar-row admin-toolbar-row-between">
+          <h2 class="admin-no-margin">Database Management</h2>
+          <div class="admin-toolbar-row-tight">
+            <button type="button" class="btn btn-secondary btn-small" onclick="loadDatabaseTables()">Refresh Tables</button>
+            <button type="button" class="btn btn-secondary btn-small" onclick="exportDatabaseDump()">Export Entire Database</button>
+          </div>
+        </div>
+
+        <div class="admin-actions-row admin-actions-row-mb-10">
+          <label class="form-label admin-no-margin">Table</label>
+          <select id="db-table-select" class="form-select form-select-max-280" onchange="onDatabaseTableChange()">
+            <option value="">Select a table</option>
+          </select>
+          <button type="button" class="btn btn-secondary btn-small" onclick="exportSelectedTable()">Export Table</button>
+          <button type="button" class="btn btn-secondary btn-small" onclick="exportSelectedRows()">Export Selected Rows</button>
+          <span id="db-row-selection-meta" class="admin-meta-subtle">0 selected</span>
+        </div>
+
+        <table class="data-table" id="db-rows-table">
+          <thead id="db-rows-head">
+            <tr><th>Table rows</th></tr>
+          </thead>
+          <tbody id="db-rows-body">
+            <tr><td class="table-empty-cell">Select a table to browse data.</td></tr>
+          </tbody>
+        </table>
+        <div id="db-pagination" class="pagination-row"></div>
+
+        <h3 class="admin-section-subtitle">Import SQL Dump</h3>
+        <div class="form-group">
+          <textarea id="db-import-sql" class="form-input" rows="8" placeholder="Paste SQL dump here..."></textarea>
+        </div>
+        <div class="admin-actions-row">
+          <button type="button" class="btn btn-primary btn-small" onclick="importDatabaseSql()">Import SQL</button>
+          <small class="form-help">Supports full database dumps, single table dumps, and selected-record SQL exports.</small>
+        </div>
+      </section>
+
       <section class="admin-section" id="tab-settings">
         <h2>Settings</h2>
         <form id="settings-form" class="settings-form">
@@ -882,6 +922,7 @@
       loadAdminBookmarks();
     }
     if (tab === 'session-log') { slPage = 1; loadSessionLog(); }
+    if (tab === 'database') { dbPage = 1; loadDatabaseTables(); }
     if (tab === 'settings') loadSettings();
   }
 
@@ -2440,6 +2481,241 @@
   }
 
   function slGo(p) { slPage = Math.max(1, p); loadSessionLog(); }
+
+  // ── Database Management ───────────────────────────────────
+  let dbPage = 1;
+  let dbTotal = 0;
+  let dbSelectedTable = '';
+  let dbSelectedRowIds = new Set();
+  const dbLimit = 25;
+
+  function updateDatabaseSelectionMeta() {
+    const el = document.getElementById('db-row-selection-meta');
+    if (el) el.textContent = `${dbSelectedRowIds.size} selected`;
+  }
+
+  function downloadTextFile(filename, content, mimeType = 'application/sql') {
+    const blob = new Blob([content], { type: `${mimeType};charset=utf-8` });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  async function loadDatabaseTables() {
+    const select = document.getElementById('db-table-select');
+    const tbody = document.getElementById('db-rows-body');
+    if (!select || !tbody) return;
+
+    try {
+      const res = await adminFetch('/api/admin/database/tables');
+      if (!res.ok) throw new Error(`${res.status}`);
+      const data = await res.json();
+      const tables = Array.isArray(data.tables) ? data.tables : [];
+      const current = dbSelectedTable || select.value || '';
+
+      select.innerHTML = '<option value="">Select a table</option>' + tables.map(t => (
+        `<option value="${escHtml(t.name)}">${escHtml(t.name)} (${Number(t.rowCount || 0).toLocaleString()})</option>`
+      )).join('');
+
+      if (current && tables.some(t => t.name === current)) {
+        select.value = current;
+        dbSelectedTable = current;
+      } else {
+        dbSelectedTable = '';
+        dbSelectedRowIds = new Set();
+        updateDatabaseSelectionMeta();
+      }
+
+      if (dbSelectedTable) await loadDatabaseRows();
+      else {
+        tbody.innerHTML = '<tr><td class="table-empty-cell">Select a table to browse data.</td></tr>';
+        document.getElementById('db-rows-head').innerHTML = '<tr><th>Table rows</th></tr>';
+        document.getElementById('db-pagination').innerHTML = '';
+      }
+    } catch {
+      tbody.innerHTML = '<tr><td class="table-empty-cell">Failed to load table list.</td></tr>';
+      document.getElementById('db-pagination').innerHTML = '';
+    }
+  }
+
+  async function onDatabaseTableChange() {
+    dbSelectedTable = document.getElementById('db-table-select')?.value || '';
+    dbPage = 1;
+    dbSelectedRowIds = new Set();
+    updateDatabaseSelectionMeta();
+    await loadDatabaseRows();
+  }
+
+  async function loadDatabaseRows() {
+    const head = document.getElementById('db-rows-head');
+    const body = document.getElementById('db-rows-body');
+    const pager = document.getElementById('db-pagination');
+    if (!head || !body || !pager) return;
+
+    if (!dbSelectedTable) {
+      head.innerHTML = '<tr><th>Table rows</th></tr>';
+      body.innerHTML = '<tr><td class="table-empty-cell">Select a table to browse data.</td></tr>';
+      pager.innerHTML = '';
+      return;
+    }
+
+    try {
+      const res = await adminFetch(`/api/admin/database/tables/${encodeURIComponent(dbSelectedTable)}/rows?page=${dbPage}&limit=${dbLimit}`);
+      if (!res.ok) throw new Error(`${res.status}`);
+      const data = await res.json();
+      const columns = Array.isArray(data.columns) ? data.columns : [];
+      const rows = Array.isArray(data.rows) ? data.rows : [];
+      dbTotal = Number(data.total || 0);
+
+      head.innerHTML = `
+        <tr>
+          <th>Select</th>
+          ${columns.map(col => `<th>${escHtml(col)}</th>`).join('')}
+          <th>Actions</th>
+        </tr>`;
+
+      if (!rows.length) {
+        body.innerHTML = `<tr><td colspan="${columns.length + 2}" class="table-empty-cell">No rows found.</td></tr>`;
+      } else {
+        body.innerHTML = rows.map(row => `
+          <tr>
+            <td><input type="checkbox" ${dbSelectedRowIds.has(row._rowid) ? 'checked' : ''} onchange="toggleDatabaseRowSelection(${Number(row._rowid) || 0}, this.checked)" /></td>
+            ${columns.map(col => `<td>${escHtml(row[col] == null ? 'NULL' : String(row[col]))}</td>`).join('')}
+            <td><button type="button" class="btn btn-secondary btn-small" onclick="editDatabaseRow(${Number(row._rowid) || 0})">Edit</button></td>
+          </tr>`).join('');
+      }
+
+      const totalPages = Math.max(1, Math.ceil(dbTotal / dbLimit));
+      pager.innerHTML = `
+        <span>Page ${dbPage} / ${totalPages} • ${dbTotal.toLocaleString()} rows</span>
+        <button class="btn btn-secondary btn-small" onclick="dbGo(${dbPage - 1})" ${dbPage <= 1 ? 'disabled' : ''}>← Prev</button>
+        <button class="btn btn-secondary btn-small" onclick="dbGo(${dbPage + 1})" ${dbPage >= totalPages ? 'disabled' : ''}>Next →</button>`;
+      updateDatabaseSelectionMeta();
+    } catch {
+      head.innerHTML = '<tr><th>Table rows</th></tr>';
+      body.innerHTML = '<tr><td class="table-empty-cell">Failed to load table rows.</td></tr>';
+      pager.innerHTML = '';
+    }
+  }
+
+  function dbGo(nextPage) {
+    dbPage = Math.max(1, nextPage);
+    loadDatabaseRows();
+  }
+
+  function toggleDatabaseRowSelection(rowid, selected) {
+    if (!Number.isInteger(rowid) || rowid <= 0) return;
+    if (selected) dbSelectedRowIds.add(rowid);
+    else dbSelectedRowIds.delete(rowid);
+    updateDatabaseSelectionMeta();
+  }
+
+  async function editDatabaseRow(rowid) {
+    if (!dbSelectedTable || !Number.isInteger(rowid) || rowid <= 0) return;
+    try {
+      const res = await adminFetch(`/api/admin/database/tables/${encodeURIComponent(dbSelectedTable)}/rows?page=${dbPage}&limit=${dbLimit}`);
+      if (!res.ok) throw new Error(`${res.status}`);
+      const data = await res.json();
+      const row = (data.rows || []).find(r => Number(r._rowid) === rowid);
+      if (!row) return alert('Row not found on this page.');
+
+      const editable = { ...row };
+      delete editable._rowid;
+      const current = JSON.stringify(editable, null, 2);
+      const input = prompt(`Edit row ${rowid} in ${dbSelectedTable} as JSON:`, current);
+      if (input == null) return;
+      const payload = JSON.parse(input);
+
+      const save = await adminFetch(`/api/admin/database/tables/${encodeURIComponent(dbSelectedTable)}/rows/${rowid}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!save.ok) {
+        const err = await save.json().catch(() => ({}));
+        throw new Error(err.error || `HTTP ${save.status}`);
+      }
+      await loadDatabaseRows();
+    } catch (err) {
+      alert(`Failed to update row: ${err.message}`);
+    }
+  }
+
+  async function exportDatabaseDump() {
+    try {
+      const res = await adminFetch('/api/admin/database/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scope: 'database' }),
+      });
+      if (!res.ok) throw new Error(`${res.status}`);
+      const sql = await res.text();
+      downloadTextFile(`ourtube-db-${new Date().toISOString().slice(0, 10)}.sql`, sql);
+    } catch {
+      alert('Failed to export database dump.');
+    }
+  }
+
+  async function exportSelectedTable() {
+    if (!dbSelectedTable) return alert('Choose a table first.');
+    try {
+      const res = await adminFetch('/api/admin/database/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scope: 'table', table: dbSelectedTable }),
+      });
+      if (!res.ok) throw new Error(`${res.status}`);
+      const sql = await res.text();
+      downloadTextFile(`ourtube-table-${dbSelectedTable}-${new Date().toISOString().slice(0, 10)}.sql`, sql);
+    } catch {
+      alert('Failed to export table dump.');
+    }
+  }
+
+  async function exportSelectedRows() {
+    if (!dbSelectedTable) return alert('Choose a table first.');
+    if (!dbSelectedRowIds.size) return alert('Select one or more rows first.');
+    try {
+      const res = await adminFetch('/api/admin/database/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scope: 'records', table: dbSelectedTable, rowids: Array.from(dbSelectedRowIds) }),
+      });
+      if (!res.ok) throw new Error(`${res.status}`);
+      const sql = await res.text();
+      downloadTextFile(`ourtube-records-${dbSelectedTable}-${new Date().toISOString().slice(0, 10)}.sql`, sql);
+    } catch {
+      alert('Failed to export selected rows.');
+    }
+  }
+
+  async function importDatabaseSql() {
+    const input = document.getElementById('db-import-sql');
+    const sql = String(input?.value || '').trim();
+    if (!sql) return alert('Paste SQL before importing.');
+    if (!confirm('Import SQL now? This will apply changes to the current database.')) return;
+
+    try {
+      const res = await adminFetch('/api/admin/database/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sql }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+      alert('SQL import completed.');
+      await loadDatabaseTables();
+    } catch (err) {
+      alert(`SQL import failed: ${err.message}`);
+    }
+  }
 
   // ── Telemetry ────────────────────────────────────────────
   async function loadTelemetryInfo() {
