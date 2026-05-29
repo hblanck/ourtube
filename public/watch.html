@@ -48,6 +48,19 @@
       <div id="player-container" class="player-container">
         <video id="video-player" class="video-js vjs-big-play-centered vjs-fluid" controls preload="auto"></video>
         <div id="stitched-clip-watermark" class="stitched-clip-watermark" style="display:none"></div>
+        <div id="admin-player-diagnostics" class="admin-player-diagnostics" style="display:none" aria-live="polite">
+          <div class="admin-player-diagnostics-title">Admin Diagnostics</div>
+          <pre id="admin-player-diagnostics-body" class="admin-player-diagnostics-body"></pre>
+        </div>
+        <div id="admin-playback-mode-control" class="admin-playback-mode-control" style="display:none">
+          <label for="admin-playback-mode-select">Playback mode</label>
+          <select id="admin-playback-mode-select" class="admin-playback-mode-select">
+            <option value="auto">Auto</option>
+            <option value="direct">Direct</option>
+            <option value="transcode">Transcode</option>
+            <option value="hls">HLS</option>
+          </select>
+        </div>
       </div>
       <div id="stitched-progress" class="stitched-progress" style="display:none">
         <span id="stitched-current" class="stitched-time">0:00</span>
