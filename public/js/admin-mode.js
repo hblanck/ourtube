@@ -24,7 +24,10 @@
   }
 
   async function fetchStatus() {
-    const res = await fetch('/api/admin/auth/status', { credentials: 'same-origin' });
+    const res = await fetch('/api/admin/auth/status', {
+      credentials: 'same-origin',
+      cache: 'no-store',
+    });
     if (!res.ok) throw new Error('Failed to load admin status');
     status = await res.json();
     return status;
@@ -182,12 +185,39 @@
     if (overlay) overlay.classList.remove('open');
   }
 
+  function getLoginErrorMessage(res, data, keyWasTrimmed) {
+    const errorCode = String(data?.errorCode || '').trim().toUpperCase();
+
+    if (errorCode === 'MISSING_KEY') {
+      return 'Enter an admin key.';
+    }
+
+    if (errorCode === 'INVALID_KEY') {
+      const hint = keyWasTrimmed
+        ? ' Extra spaces/newlines were removed before checking.'
+        : '';
+      return `That key was not recognized.${hint}`;
+    }
+
+    if (errorCode === 'RATE_LIMITED' || res.status === 429) {
+      return 'Too many attempts. Please wait a minute and try again.';
+    }
+
+    if (data && typeof data.error === 'string' && data.error.trim()) {
+      return data.error.trim();
+    }
+
+    return 'Login failed. Check the key and try again.';
+  }
+
   async function loginFromModal() {
     const input = document.getElementById('admin-auth-key');
     const error = document.getElementById('admin-auth-error');
     if (!input || !error) return;
 
-    const key = input.value.trim();
+    const rawKey = String(input.value || '');
+    const key = rawKey.trim();
+    const keyWasTrimmed = rawKey !== key;
     if (!key) {
       error.textContent = 'Enter an admin key.';
       error.style.display = 'block';
@@ -201,8 +231,18 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key })
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Login failed');
+
+      let data = null;
+      try {
+        data = await res.json();
+      } catch {
+        data = null;
+      }
+
+      if (!res.ok) {
+        throw new Error(getLoginErrorMessage(res, data, keyWasTrimmed));
+      }
+
       status = data;
       closeModal();
 
@@ -214,7 +254,7 @@
       renderHeaderControls();
       dispatchStatusChanged();
     } catch (err) {
-      error.textContent = escHtml(err.message || 'Login failed');
+      error.textContent = String(err.message || 'Login failed');
       error.style.display = 'block';
     }
   }

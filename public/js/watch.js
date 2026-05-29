@@ -29,6 +29,7 @@
   let hlsStartupRetryCount = 0;
   let transcodeStartupFallbackTimer = null;
   let transcodeStartupFallbackTried = false;
+  let concatDurationFallbackTimer = null;
   let pendingResumeSeconds = null;
   let hasAppliedResume = false;
   let lastProgressSavedAt = 0;
@@ -36,6 +37,9 @@
   let progressSaveInFlight = false;
   let latestProgressSavePromise = Promise.resolve();
   let externalBaseUrl = '';
+  let preferStitchedCompatibility = false;
+  let pendingBookmarkTimeSeconds = null;
+  let transcodeSourceGeneration = 0;
 
   const CLIP_WATERMARK_STORAGE_KEY = 'watch_stitched_clip_watermark';
   const CLIP_WATERMARK_MODE_STORAGE_KEY = 'watch_stitched_clip_watermark_mode';
@@ -93,8 +97,10 @@
       if (!res.ok) return;
       const data = await res.json();
       externalBaseUrl = normalizeExternalBaseUrl(data?.external_base_url);
+      preferStitchedCompatibility = data?.stitched_prefer_compatibility === true;
     } catch {
       externalBaseUrl = '';
+      preferStitchedCompatibility = false;
     }
   }
 
@@ -185,6 +191,7 @@
   function closeBookmarkDialog() {
     const modal = document.getElementById('bookmark-modal');
     if (modal) modal.classList.remove('open');
+    pendingBookmarkTimeSeconds = null;
   }
 
   function openBookmarkDialog() {
@@ -194,7 +201,8 @@
     const currentTime = document.getElementById('bookmark-dialog-time');
     if (!modal || !form || !currentTime) return;
 
-    currentTime.textContent = fmtDur(Math.max(0, Number(getTimelineCurrentTime()) || 0));
+    pendingBookmarkTimeSeconds = Math.max(0, Number(getTimelineCurrentTime()) || 0);
+    currentTime.textContent = fmtDur(pendingBookmarkTimeSeconds);
     modal.classList.add('open');
     const title = form.querySelector('[name="title"]');
     if (title) title.focus();
@@ -388,7 +396,8 @@
 
     if (stitchedPlayback && compatibilityMode && compatibilityTransport === 'transcode') {
       if (!Number.isFinite(stitchedTranscodeTimeOrigin)) {
-        stitchedTranscodeTimeOrigin = safeCurrent;
+        // Origin not yet latched — source still loading; show seek offset position.
+        return stitchedSeekOffset;
       }
       const elapsedSinceSourceAttach = Math.max(0, safeCurrent - stitchedTranscodeTimeOrigin);
       return stitchedSeekOffset + elapsedSinceSourceAttach;
@@ -412,6 +421,10 @@
     return url.pathname + url.search;
   }
 
+  function buildConcatUrl(media) {
+    return `/stream/${media.id}/concat`;
+  }
+
   function clearHlsStartupRetry() {
     if (!hlsStartupRetryTimer) return;
     clearTimeout(hlsStartupRetryTimer);
@@ -422,6 +435,44 @@
     if (!transcodeStartupFallbackTimer) return;
     clearTimeout(transcodeStartupFallbackTimer);
     transcodeStartupFallbackTimer = null;
+  }
+
+  function clearConcatDurationFallback() {
+    if (!concatDurationFallbackTimer) return;
+    clearTimeout(concatDurationFallbackTimer);
+    concatDurationFallbackTimer = null;
+  }
+
+  function hasInvalidConcatDuration() {
+    if (!player) return true;
+
+    const rawDuration = Number(player.duration());
+    if (!Number.isFinite(rawDuration) || rawDuration <= 0) return true;
+
+    const safeExpectedDuration = Math.max(0, Number(expectedDuration) || 0);
+    if (safeExpectedDuration <= 0) return false;
+
+    // Some fragmented concat outputs report a tiny/incorrect duration on certain ffmpeg builds.
+    return rawDuration < (safeExpectedDuration * 0.8);
+  }
+
+  function scheduleConcatDurationFallback(media) {
+    clearConcatDurationFallback();
+    if (!player || !media?.is_virtual) return;
+
+    concatDurationFallbackTimer = setTimeout(() => {
+      if (!player || compatibilityMode || compatibilityTransport !== 'none') return;
+      if (!hasInvalidConcatDuration()) return;
+
+      const warning = document.getElementById('playback-warning');
+      if (warning) {
+        warning.textContent = 'Stitched timeline metadata is unavailable. Switching to compatibility playback...';
+        warning.style.display = 'block';
+      }
+
+      setVideoSource(media, true);
+      player.play().catch(() => {});
+    }, 1600);
   }
 
   function scheduleHlsStartupRetry(media) {
@@ -527,6 +578,13 @@
     stitchedSeekOffset = clamped;
     stitchedTranscodeTimeOrigin = null;
     player.src({ src: buildTranscodeUrl(currentMedia, clamped), type: 'video/mp4' });
+    const seekGen = ++transcodeSourceGeneration;
+    player.one('loadeddata', () => {
+      if (transcodeSourceGeneration !== seekGen) return;
+      const t = Number(player.currentTime());
+      stitchedTranscodeTimeOrigin = Number.isFinite(t) && t >= 0 ? t : 0;
+      syncCompatibilityDurationUi();
+    });
     syncCompatibilityDurationUi();
 
     if (!wasPaused) {
@@ -667,6 +725,7 @@
     transcodeFallbackTried = false;
     transcodeStartupFallbackTried = false;
     clearTranscodeStartupFallback();
+    clearConcatDurationFallback();
     expectedDuration = media.duration || 0;
     stitchedPlayback = !!media.is_virtual;
     stitchedSeekOffset = 0;
@@ -749,6 +808,7 @@
     if (!player) return;
     clearHlsStartupRetry();
     clearTranscodeStartupFallback();
+    clearConcatDurationFallback();
     compatibilityMode = useTranscode;
     compatibilityTransport = useTranscode ? (shouldUseHlsCompatibility(media) ? 'hls' : 'transcode') : 'none';
     stitchedTranscodeTimeOrigin = null;
@@ -768,19 +828,35 @@
 
       const startSeconds = (stitchedPlayback && compatibilityMode && compatibilityTransport === 'transcode') ? stitchedSeekOffset : 0;
       player.src({ src: buildTranscodeUrl(media, startSeconds), type: 'video/mp4' });
+      const transcodeGen = ++transcodeSourceGeneration;
+      player.one('loadeddata', () => {
+        if (transcodeSourceGeneration !== transcodeGen) return;
+        const t = Number(player.currentTime());
+        stitchedTranscodeTimeOrigin = Number.isFinite(t) && t >= 0 ? t : 0;
+        syncCompatibilityDurationUi();
+      });
       scheduleTranscodeStartupFallback(media);
       syncCompatibilityDurationUi();
       return;
     }
     const warning = document.getElementById('playback-warning');
     if (warning) warning.style.display = 'none';
-    player.src({ src: `/stream/${media.id}`, type: getMime(media) });
+    if (media.is_virtual) {
+      // Use the low-CPU concat stream (ffmpeg copy, no re-encode).
+      // On error the existing fallback handler will retry with full transcode.
+      player.src({ src: buildConcatUrl(media), type: 'video/mp4' });
+      scheduleConcatDurationFallback(media);
+    } else {
+      player.src({ src: `/stream/${media.id}`, type: getMime(media) });
+    }
     updateStitchedProgress();
     updateCurrentClipWatermark();
   }
 
   function shouldPreferTranscode(media) {
-    if (media.is_virtual) return true;
+    // Virtual/stitched media uses the low-CPU concat stream by default.
+    // Incompatible codecs will trigger the error → transcode fallback automatically.
+    if (media.is_virtual) return preferStitchedCompatibility;
     const ext = (media.file_name || '').split('.').pop().toLowerCase();
     if (['mkv', 'avi', 'wmv', 'flv', 'mpg', 'mpeg', '3gp'].includes(ext)) return true;
     return !canPlayDirectly(media);
@@ -827,6 +903,7 @@
     stitchedPlayback = false;
     stitchedSeekOffset = 0;
     stitchedSegmentTimeline = [];
+    clearConcatDurationFallback();
     updateStitchedProgress();
     updateCurrentClipWatermark();
     const photoContainer = document.getElementById('photo-container');
@@ -1230,7 +1307,12 @@
         .map(tag => tag.trim())
         .filter(Boolean);
 
-      const timeSeconds = Math.max(0, Number(getTimelineCurrentTime()) || 0);
+      const timeSeconds = Math.max(
+        0,
+        Number.isFinite(Number(pendingBookmarkTimeSeconds))
+          ? Number(pendingBookmarkTimeSeconds)
+          : Number(getTimelineCurrentTime()) || 0
+      );
       const res = await fetch(`/api/media/${encodeURIComponent(currentMedia.id)}/bookmarks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

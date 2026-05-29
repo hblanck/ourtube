@@ -31,6 +31,23 @@ function isPhotosEnabled(db) {
   return getSettingValue(db, 'photos_enabled', 'true') !== 'false';
 }
 
+function parseBooleanEnv(value) {
+  if (value == null) return null;
+  const normalized = String(value).trim().toLowerCase();
+  if (!normalized) return null;
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+  return null;
+}
+
+function shouldPreferStitchedCompatibilityPlayback() {
+  const override = parseBooleanEnv(process.env.STITCHED_PREFER_COMPATIBILITY);
+  if (override !== null) return override;
+
+  // Default to low-CPU concat-first playback unless explicitly overridden.
+  return false;
+}
+
 function normalizeExternalBaseUrl(value) {
   const raw = String(value || '').trim();
   if (!raw) return '';
@@ -187,7 +204,8 @@ router.get('/ui-settings', (req, res) => {
   const db = getDb();
   res.json({
     photos_enabled: isPhotosEnabled(db),
-    external_base_url: normalizeExternalBaseUrl(getSettingValue(db, 'external_base_url', ''))
+    external_base_url: normalizeExternalBaseUrl(getSettingValue(db, 'external_base_url', '')),
+    stitched_prefer_compatibility: shouldPreferStitchedCompatibilityPlayback(),
   });
 });
 

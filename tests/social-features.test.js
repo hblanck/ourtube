@@ -65,6 +65,8 @@ describe('social API features', () => {
     const res = await request(app).get('/api/ui-settings');
     expect(res.status).toBe(200);
     expect(res.body.external_base_url).toBe('https://public.example.com');
+    expect(res.body).toHaveProperty('stitched_prefer_compatibility');
+    expect(typeof res.body.stitched_prefer_compatibility).toBe('boolean');
   });
 
   test('POST/GET bookmarks on a video', async () => {

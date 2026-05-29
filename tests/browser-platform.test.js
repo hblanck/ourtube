@@ -90,10 +90,12 @@ function get(endpoint, ua) {
 // ─── API endpoint tests ───────────────────────────────────────────────────────
 
 describe('GET /api/ui-settings', () => {
-  test.each(UA_ENTRIES)('%s — responds 200 with photos_enabled field', async (_, ua) => {
+  test.each(UA_ENTRIES)('%s — responds 200 with UI settings fields', async (_, ua) => {
     const res = await get('/api/ui-settings', ua);
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('photos_enabled');
+    expect(res.body).toHaveProperty('stitched_prefer_compatibility');
+    expect(typeof res.body.stitched_prefer_compatibility).toBe('boolean');
   });
 });
 

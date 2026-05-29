@@ -82,8 +82,9 @@ describe('admin-auth', () => {
     const authKeyId = tryAuthenticateAdminKey('session-secret');
     expect(authKeyId).toBe(keyId);
 
+    const loginReq = { headers: {} };
     const res = createMockRes();
-    const loginInfo = loginAdmin(res, keyId);
+    const loginInfo = loginAdmin(loginReq, res, keyId);
     const cookie = cookieFromRes(res);
 
     expect(cookie).toContain('ourtube_admin_session=');
@@ -116,7 +117,7 @@ describe('admin-auth', () => {
   test('requireAdminAuth accepts valid session and sets req.adminSession', () => {
     const keyId = createAdminKeyRecord('Auth Key', 'auth-secret');
     const res = createMockRes();
-    loginAdmin(res, keyId);
+    loginAdmin({ headers: {} }, res, keyId);
 
     const req = { headers: { cookie: cookieFromRes(res) } };
     const guardRes = createMockRes();
@@ -150,7 +151,7 @@ describe('admin-auth', () => {
     ).run(keyA, keyB);
 
     const loginRes = createMockRes();
-    loginAdmin(loginRes, keyA);
+    loginAdmin({ headers: {} }, loginRes, keyA);
     const reqWithKeyA = { headers: { cookie: cookieFromRes(loginRes) } };
     expect(isAdminAuthenticated(reqWithKeyA)).toBe(true);
 
@@ -169,5 +170,23 @@ describe('admin-auth', () => {
       name: expect.any(String),
       key_prefix: expect.any(String),
     }));
+  });
+
+  test('admin session cookie is not Secure on plain HTTP by default', () => {
+    const keyId = createAdminKeyRecord('Cookie HTTP', 'cookie-http-secret');
+    const res = createMockRes();
+
+    loginAdmin({ headers: {} }, res, keyId);
+
+    expect(String(res.headers['Set-Cookie'] || '')).not.toContain('Secure');
+  });
+
+  test('admin session cookie is Secure when x-forwarded-proto is https', () => {
+    const keyId = createAdminKeyRecord('Cookie HTTPS', 'cookie-https-secret');
+    const res = createMockRes();
+
+    loginAdmin({ headers: { 'x-forwarded-proto': 'https' } }, res, keyId);
+
+    expect(String(res.headers['Set-Cookie'] || '')).toContain('Secure');
   });
 });

@@ -36,6 +36,7 @@ services:
     environment:
       - PORT=3000
       - DATA_DIR=/data
+      - ADMIN_SESSION_COOKIE_SECURE=false
       - FACE_DETECTION_ENABLED=false
     restart: unless-stopped
 volumes:
@@ -53,6 +54,22 @@ docker compose up --watch
 ```
 
 Then open **http://localhost:3000** in your browser and go to **Admin → Source Locations** to add `/media` (or any path you mounted).
+
+### Admin Session Cookie Security (Important)
+
+Admin mode depends on an HTTP cookie (`ourtube_admin_session`). If this cookie is marked `Secure` while you are using plain `http://` access on a LAN, browsers will silently drop it and admin mode will appear locked even after a successful key login.
+
+Recommended values:
+- Plain HTTP on LAN (for example `http://ourtube:3000`): set `ADMIN_SESSION_COOKIE_SECURE=false`
+- HTTPS behind reverse proxy: set `ADMIN_SESSION_COOKIE_SECURE=true`
+- Auto mode with trusted proxy forwarding: leave unset and ensure `x-forwarded-proto=https` is passed
+
+Example for HTTPS proxy deployments:
+
+```yaml
+environment:
+  - ADMIN_SESSION_COOKIE_SECURE=true
+```
 
 ## SMB / NAS Shares
 
@@ -104,21 +121,40 @@ Admin bulk tools:
 
 Admin APIs are protected by key-based authentication. End-user browsing and playback stay open.
 
-Create the first key from CLI:
+Create the first key from CLI (first-time bootstrap):
 
 ```bash
 npm run admin:key:create
 ```
 
-When running in Docker:
+When running in Docker and the container is already running:
 
 ```bash
 docker compose exec ourtube npm run admin:key:create
 ```
 
-The command prints a key once. Use the **🔐 Admin** button in the main UI header to unlock admin mode.
+When running in Docker and the container is not running yet:
+
+```bash
+docker compose run --rm ourtube npm run admin:key:create
+```
+
+Use this key in the **🔐 Admin** button in the main UI header to unlock admin mode.
+
+### Admin Key Management (After Bootstrap)
 
 After unlocking, manage keys in **Admin → Settings → Admin Keys** (create, rename, revoke).
+
+You can also create additional keys from CLI any time:
+
+```bash
+npm run admin:key:create "Living Room Tablet"
+```
+
+Important persistence note:
+- Admin keys are stored in SQLite under `DATA_DIR`.
+- If your `/data` volume is reset/recreated, existing keys are lost and you must bootstrap a new key.
+
 
 ## Environment Variables
 
@@ -128,6 +164,8 @@ After unlocking, manage keys in **Admin → Settings → Admin Keys** (create, r
 | `DATA_DIR` | `/data` | Where to store the SQLite database and thumbnails |
 | `NAS_SHARE_PATH` | `/mnt/nas/videos` | Host path to your mounted NAS/media share |
 | `FACE_DETECTION_ENABLED` | `false` | Enable face detection (requires models in `$DATA_DIR/models/`) |
+| `STITCHED_PREFER_COMPATIBILITY` | _(auto)_ | Override stitched playback mode selection: `true` prefers compatibility streams, `false` prefers low-CPU concat first; default is concat-first |
+| `ADMIN_SESSION_COOKIE_SECURE` | _(auto)_ | Force `Secure` flag for admin session cookie: `true`, `false`, or auto-detect from request HTTPS (`x-forwarded-proto=https`) |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | _(unset)_ | Base URL of your OTLP/HTTP collector – setting this enables OpenTelemetry |
 | `OTEL_SERVICE_NAME` | `ourtube` | Service name reported to the collector |
 | `OTEL_SDK_DISABLED` | `false` | Set to `true` to explicitly disable the SDK even if an endpoint is set |
@@ -205,6 +243,19 @@ This is useful for:
 - Any scenario where related clips should be viewed together
 
 The stitched item retains metadata from the first clip and supports all standard playback features including subtitles and streaming.
+
+Playback mode behavior for stitched items:
+- By default, stitched playback uses low-CPU concat-first behavior and falls back to compatibility mode if needed.
+- Set `STITCHED_PREFER_COMPATIBILITY=true` or `false` to override the default behavior.
+
+Docker Compose override example:
+
+```yaml
+services:
+  ourtube:
+    environment:
+      - STITCHED_PREFER_COMPATIBILITY=true
+```
 
 ## Admin Audit Logs
 
