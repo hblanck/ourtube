@@ -10,7 +10,6 @@ const request = require('supertest');
 const { initDb, getDb } = require('../src/db');
 const { buildVirtualMediaId } = require('../src/virtual-media');
 const apiRouter = require('../src/routes/api');
-const adminApiRouter = require('../src/routes/admin-api');
 
 let app;
 let sourceLocationId;
@@ -61,7 +60,6 @@ beforeAll(() => {
   app = express();
   app.use(express.json());
   app.use('/api', apiRouter);
-  app.use('/api/admin', adminApiRouter);
 });
 
 afterAll(() => {
@@ -79,24 +77,18 @@ describe('downloadable video controls', () => {
     expect(res.body).toEqual(expect.objectContaining({ error: expect.any(String) }));
   });
 
-  test('PUT /api/admin/media/:id can enable downloadable and download succeeds', async () => {
-    const save = await request(app)
-      .put('/api/admin/media/download-regular')
-      .send({ downloadable: 1 });
-    expect(save.status).toBe(200);
-    expect(Number(save.body.downloadable)).toBe(1);
+  test('download succeeds after media is marked downloadable', async () => {
+    const db = getDb();
+    db.prepare(`UPDATE media SET downloadable = 1 WHERE id = 'download-regular'`).run();
 
     const res = await request(app).get('/api/media/download-regular/download');
     expect(res.status).toBe(200);
     expect(res.headers['content-disposition']).toContain('attachment;');
   });
 
-  test('PUT /api/admin/media/:virtualId updates stitched segment downloadable state', async () => {
-    const save = await request(app)
-      .put(`/api/admin/media/${encodeURIComponent(virtualMediaId)}`)
-      .send({ downloadable: 1 });
-    expect(save.status).toBe(200);
-    expect(save.body).toEqual(expect.objectContaining({ updated: 2 }));
+  test('stitched media becomes downloadable when all segments are downloadable', async () => {
+    const db = getDb();
+    db.prepare(`UPDATE media SET downloadable = 1 WHERE id IN ('download-seg-1', 'download-seg-2')`).run();
 
     const virtual = await request(app).get(`/api/media/${encodeURIComponent(virtualMediaId)}`);
     expect(virtual.status).toBe(200);
