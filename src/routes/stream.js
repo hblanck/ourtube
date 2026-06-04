@@ -120,12 +120,16 @@ function parseStartSeconds(value) {
 
 function parseSafariProbeRange(rangeHeader) {
   if (!rangeHeader) return null;
-  const rangeMatch = String(rangeHeader).match(/^bytes=(\d+)-(\d+)$/);
+  const rangeMatch = String(rangeHeader).trim().match(/^bytes=(\d+)-(\d*)$/i);
   if (!rangeMatch) return null;
   const start = parseInt(rangeMatch[1], 10);
-  const end = parseInt(rangeMatch[2], 10);
+  const requestedEndRaw = rangeMatch[2];
+  const end = requestedEndRaw === '' ? 1 : parseInt(requestedEndRaw, 10);
   const length = end - start + 1;
-  if (start !== 0 || end !== 1 || length !== 2) return null;
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+  if (start !== 0 || end < start || length <= 0) return null;
+  // Only treat tiny initial byte ranges as compatibility probes.
+  if (length > 2) return null;
   return { start, end, length };
 }
 

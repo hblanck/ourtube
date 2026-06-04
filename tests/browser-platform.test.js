@@ -210,6 +210,21 @@ describe('GET /stream/:virtualId/transcode — Safari byte-range probe', () => {
     }
   );
 
+  test.each(SAFARI_UAS)(
+    '%s — Range: bytes=0- with watch params returns 206',
+    async (_, ua) => {
+      const res = await request(app)
+        .get(`/stream/${virtualMediaId}/transcode?_ts=1`)
+        .set('User-Agent', ua)
+        .set('Range', 'bytes=0-');
+
+      expect(res.status).toBe(206);
+      expect(res.headers['content-range']).toMatch(/^bytes 0-1\//);
+      expect(res.headers['accept-ranges']).toBe('bytes');
+      expect(res.headers['content-length']).toBe('2');
+    }
+  );
+
   // Without watch params the server short-circuits with 204 (stale request guard).
   test.each(SAFARI_UAS)(
     '%s — Range: bytes=0-1 without watch params returns 204',
@@ -237,6 +252,22 @@ describe('GET /stream/:id/transcode — direct video Safari byte-range probe', (
         .get(`/stream/${directMediaId}/transcode`)
         .set('User-Agent', ua)
         .set('Range', 'bytes=0-1');
+
+      expect(res.status).toBe(206);
+      expect(res.headers['content-range']).toMatch(/^bytes 0-1\//);
+      expect(res.headers['accept-ranges']).toBe('bytes');
+      expect(res.headers['content-type']).toMatch(/^video\/mp4/);
+      expect(res.headers['content-length']).toBe('2');
+    }
+  );
+
+  test.each(SAFARI_UAS)(
+    '%s — Range: bytes=0- returns 206 before transcode starts',
+    async (_, ua) => {
+      const res = await request(app)
+        .get(`/stream/${directMediaId}/transcode`)
+        .set('User-Agent', ua)
+        .set('Range', 'bytes=0-');
 
       expect(res.status).toBe(206);
       expect(res.headers['content-range']).toMatch(/^bytes 0-1\//);
