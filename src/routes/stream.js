@@ -133,6 +133,43 @@ function parseSafariProbeRange(rangeHeader) {
   return { start, end, length };
 }
 
+function parseSingleByteRange(rangeHeader, fileSize) {
+  const rangeMatch = String(rangeHeader || '').trim().match(/^bytes=(\d*)-(\d*)$/i);
+  if (!rangeMatch) return { invalid: true };
+
+  const startRaw = rangeMatch[1];
+  const endRaw = rangeMatch[2];
+
+  if (startRaw === '' && endRaw === '') return { invalid: true };
+
+  // Suffix range request, e.g. "bytes=-500".
+  if (startRaw === '') {
+    const suffixLength = parseInt(endRaw, 10);
+    if (!Number.isFinite(suffixLength) || suffixLength <= 0) return { invalid: true };
+    if (fileSize <= 0) return { unsatisfiable: true };
+
+    const start = Math.max(0, fileSize - suffixLength);
+    const end = fileSize - 1;
+    return { start, end, length: end - start + 1 };
+  }
+
+  const start = parseInt(startRaw, 10);
+  if (!Number.isFinite(start) || start < 0) return { invalid: true };
+  if (start >= fileSize) return { unsatisfiable: true };
+
+  let end;
+  if (endRaw === '') {
+    end = fileSize - 1;
+  } else {
+    end = parseInt(endRaw, 10);
+    if (!Number.isFinite(end) || end < 0) return { invalid: true };
+    end = Math.min(end, fileSize - 1);
+  }
+
+  if (end < start) return { unsatisfiable: true };
+  return { start, end, length: end - start + 1 };
+}
+
 function estimateVirtualTranscodeSizeBytes(segmentRows) {
   const totalDurationSeconds = (segmentRows || []).reduce((sum, row) => {
     const duration = Number.parseFloat(row?.duration);
@@ -887,16 +924,23 @@ router.get('/:id', (req, res) => {
   });
 
   if (range) {
-    const parts = range.replace(/bytes=/, '').split('-');
-    const start = parseInt(parts[0], 10);
-    const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-    const chunkSize = end - start + 1;
+    const parsedRange = parseSingleByteRange(range, fileSize);
+    if (parsedRange.invalid || parsedRange.unsatisfiable) {
+      res.writeHead(416, {
+        'Content-Range': `bytes */${fileSize}`,
+        'Accept-Ranges': 'bytes',
+      });
+      return res.end();
+    }
+
+    const { start, end, length: chunkSize } = parsedRange;
 
     res.writeHead(206, {
       'Content-Range': `bytes ${start}-${end}/${fileSize}`,
       'Accept-Ranges': 'bytes',
       'Content-Length': chunkSize,
-      'Content-Type': mimeType
+      'Content-Type': mimeType,
+      'Cache-Control': 'no-store',
     });
 
     let recordedStartup = false;
@@ -914,7 +958,8 @@ router.get('/:id', (req, res) => {
     res.writeHead(200, {
       'Content-Length': fileSize,
       'Content-Type': mimeType,
-      'Accept-Ranges': 'bytes'
+      'Accept-Ranges': 'bytes',
+      'Cache-Control': 'no-store',
     });
     let recordedStartup = false;
     const fileStream = fs.createReadStream(filePath);
