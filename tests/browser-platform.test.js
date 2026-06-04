@@ -30,6 +30,7 @@ const UA_ENTRIES = Object.entries(USER_AGENTS);
 
 let app;
 let virtualMediaId;
+const directMediaId = 'direct-transcode-media';
 
 beforeAll(() => {
   initDb();
@@ -61,6 +62,16 @@ beforeAll(() => {
       `segment${i}.mp4`
     );
   }
+
+  db.prepare(
+    `INSERT INTO media (id, source_location_id, type, file_path, file_name, size, duration, visibility)
+     VALUES (?, ?, 'video', ?, ?, 1000000, 90, 'all')`
+  ).run(
+    directMediaId,
+    sourceLocationId,
+    '/test/media/direct/source.mov',
+    'source.mov'
+  );
 
   virtualMediaId = buildVirtualMediaId(sourceLocationId, groupPath);
 
@@ -209,6 +220,29 @@ describe('GET /stream/:virtualId/transcode — Safari byte-range probe', () => {
         .set('Range', 'bytes=0-1');
 
       expect(res.status).toBe(204);
+    }
+  );
+});
+
+describe('GET /stream/:id/transcode — direct video Safari byte-range probe', () => {
+  const SAFARI_UAS = [
+    ['Safari on macOS', USER_AGENTS['Safari on macOS']],
+    ['Safari on iOS', USER_AGENTS['Safari on iOS']],
+  ];
+
+  test.each(SAFARI_UAS)(
+    '%s — Range: bytes=0-1 returns 206 before transcode starts',
+    async (_, ua) => {
+      const res = await request(app)
+        .get(`/stream/${directMediaId}/transcode`)
+        .set('User-Agent', ua)
+        .set('Range', 'bytes=0-1');
+
+      expect(res.status).toBe(206);
+      expect(res.headers['content-range']).toMatch(/^bytes 0-1\//);
+      expect(res.headers['accept-ranges']).toBe('bytes');
+      expect(res.headers['content-type']).toMatch(/^video\/mp4/);
+      expect(res.headers['content-length']).toBe('2');
     }
   );
 });

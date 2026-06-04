@@ -118,6 +118,17 @@ function parseStartSeconds(value) {
   return seconds;
 }
 
+function parseSafariProbeRange(rangeHeader) {
+  if (!rangeHeader) return null;
+  const rangeMatch = String(rangeHeader).match(/^bytes=(\d+)-(\d+)$/);
+  if (!rangeMatch) return null;
+  const start = parseInt(rangeMatch[1], 10);
+  const end = parseInt(rangeMatch[2], 10);
+  const length = end - start + 1;
+  if (start !== 0 || end !== 1 || length !== 2) return null;
+  return { start, end, length };
+}
+
 function estimateVirtualTranscodeSizeBytes(segmentRows) {
   const totalDurationSeconds = (segmentRows || []).reduce((sum, row) => {
     const duration = Number.parseFloat(row?.duration);
@@ -128,6 +139,15 @@ function estimateVirtualTranscodeSizeBytes(segmentRows) {
   // This does not need to be exact, but Safari expects a concrete total in 206 Content-Range.
   const estimatedBytesPerSecond = 320_000; // ~2.56 Mbps
   const estimated = Math.round(totalDurationSeconds * estimatedBytesPerSecond);
+  return Math.max(estimated, 1_048_576);
+}
+
+function estimateTranscodeSizeBytesFromDuration(durationSeconds) {
+  const duration = Number.parseFloat(durationSeconds);
+  const safeDuration = Number.isFinite(duration) && duration > 0 ? duration : 0;
+  // Approximate target bitrate for Safari probe headers only.
+  const estimatedBytesPerSecond = 320_000; // ~2.56 Mbps
+  const estimated = Math.round(safeDuration * estimatedBytesPerSecond);
   return Math.max(estimated, 1_048_576);
 }
 
@@ -484,27 +504,19 @@ router.get('/:id/transcode', (req, res) => {
     // If we return 200 (ignoring the Range header), Safari closes the connection immediately.
     // For small range probes, respond with a minimal 206 immediately so Safari knows
     // ranges are supported and will proceed to make a full content request.
-    const rangeHeader = req.headers.range;
-    if (rangeHeader) {
-      const rangeMatch = rangeHeader.match(/^bytes=(\d+)-(\d+)$/);
-      if (rangeMatch) {
-        const rangeStart = parseInt(rangeMatch[1], 10);
-        const rangeEnd = parseInt(rangeMatch[2], 10);
-        const rangeLen = rangeEnd - rangeStart + 1;
-        if (rangeStart === 0 && rangeEnd === 1 && rangeLen === 2) {
-          const estimatedTotalBytes = Math.max(estimateVirtualTranscodeSizeBytes(virtualSegments), rangeEnd + 1);
-          // Small probe — satisfy it immediately without starting ffmpeg
-          res.writeHead(206, {
-            'Content-Type': 'video/mp4',
-            'Content-Range': `bytes ${rangeStart}-${rangeEnd}/${estimatedTotalBytes}`,
-            'Accept-Ranges': 'bytes',
-            'Content-Length': rangeLen,
-            'Cache-Control': 'no-store',
-          });
-          res.end(Buffer.alloc(rangeLen));
-          return;
-        }
-      }
+    const probeRange = parseSafariProbeRange(req.headers.range);
+    if (probeRange) {
+      const estimatedTotalBytes = Math.max(estimateVirtualTranscodeSizeBytes(virtualSegments), probeRange.end + 1);
+      // Small probe — satisfy it immediately without starting ffmpeg
+      res.writeHead(206, {
+        'Content-Type': 'video/mp4',
+        'Content-Range': `bytes ${probeRange.start}-${probeRange.end}/${estimatedTotalBytes}`,
+        'Accept-Ranges': 'bytes',
+        'Content-Length': probeRange.length,
+        'Cache-Control': 'no-store',
+      });
+      res.end(Buffer.alloc(probeRange.length));
+      return;
     }
 
     const concatListPath = createConcatListFile(virtualSegments.map(row => row.file_path));
@@ -625,6 +637,20 @@ router.get('/:id/transcode', (req, res) => {
   if (!canAccessFromRow(row, req)) return res.status(404).json({ error: 'Not found' });
   if (row.type !== 'video') return res.status(400).json({ error: 'Not a video' });
 
+  const probeRange = parseSafariProbeRange(req.headers.range);
+  if (probeRange) {
+    const estimatedTotalBytes = Math.max(estimateTranscodeSizeBytesFromDuration(row.duration), probeRange.end + 1);
+    res.writeHead(206, {
+      'Content-Type': 'video/mp4',
+      'Content-Range': `bytes ${probeRange.start}-${probeRange.end}/${estimatedTotalBytes}`,
+      'Accept-Ranges': 'bytes',
+      'Content-Length': probeRange.length,
+      'Cache-Control': 'no-store',
+    });
+    res.end(Buffer.alloc(probeRange.length));
+    return;
+  }
+
   const filePath = row.file_path;
   if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found on disk' });
 
@@ -638,6 +664,7 @@ router.get('/:id/transcode', (req, res) => {
 
   res.writeHead(200, {
     'Content-Type': 'video/mp4',
+    'Accept-Ranges': 'bytes',
     'Cache-Control': 'no-store',
     Connection: 'keep-alive',
     'Transfer-Encoding': 'chunked'
