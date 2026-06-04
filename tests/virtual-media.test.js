@@ -40,6 +40,7 @@ function buildSegment(overrides = {}) {
     thumbnail_path: '/thumbs/clip1.jpg',
     visibility: 'all',
     source_visibility: 'all',
+    downloadable: 0,
     ...overrides,
   };
 }
@@ -110,6 +111,7 @@ describe('virtual media helpers', () => {
         view_count: 3,
         visibility: 'all',
         source_visibility: 'admin',
+        downloadable: 1,
       }),
       buildSegment({
         id: 'seg-b',
@@ -124,6 +126,7 @@ describe('virtual media helpers', () => {
         modified_at: '2024-01-06T00:00:00.000Z',
         indexed_at: '2024-01-07T00:00:00.000Z',
         visibility: 'none',
+        downloadable: 1,
       }),
     ];
 
@@ -137,9 +140,11 @@ describe('virtual media helpers', () => {
     expect(item.view_count).toBe(8);
     expect(item.visibility).toBe('none');
     expect(item.source_visibility).toBe('admin');
+    expect(item.downloadable).toBe(1);
     expect(item.tags.sort()).toEqual(['family', 'holiday', 'trip']);
     expect(item.raw_metadata).toEqual(expect.objectContaining({ stitched: true, segment_count: 2 }));
     expect(item.segments).toHaveLength(2);
+    expect(item.segments.every(segment => segment.downloadable === 1)).toBe(true);
     expect(item.id).toBe(buildVirtualMediaId(7, '/media/events/day1'));
   });
 
@@ -149,6 +154,7 @@ describe('virtual media helpers', () => {
       stitch_directories: 0,
       type: 'photo',
       tags: '["solo"]',
+      downloadable: 1,
       source_entry_type: 'file',
       source_entry_path: '/media/events/solo.jpg',
       file_path: '/media/events/solo.jpg',
@@ -165,6 +171,7 @@ describe('virtual media helpers', () => {
     expect(solo).toEqual(expect.objectContaining({
       is_virtual: 0,
       segment_count: 1,
+      downloadable: 1,
       tags: ['solo'],
     }));
 

@@ -14,6 +14,7 @@ A YouTube-like video and photo manager for NAS/SMB libraries, designed for home 
 - 🗂 **Admin interface** at `/admin/` – manage source locations, edit metadata, trigger scans, view audit logs
 - 🔐 **Key-based admin mode** – end users stay unauthenticated while admin tasks require unlocking with an admin key
 - 👁️ **Role-based visibility controls** – restrict selected videos to admin-only view, hide from public browsing
+- ⬇️ **Per-video download controls** – admins can mark videos as downloadable, users get size warnings before download
 - 🚫 **Block/disable client connections** – manage problematic clients by IP, with optional temporary or permanent blocks
 - 📝 **Admin audit logs** – track all administrative actions (visibility changes, client blocks, etc.) for accountability
 - 📡 **OpenTelemetry support** (optional) – export traces and metrics to any OTLP-compatible collector for monitoring
@@ -106,6 +107,13 @@ Control who can see your media with role-based visibility:
 - `none` – hidden from normal browsing/playback (still manageable by admins in the Admin UI)
 
 Use **Media Library** to set visibility on individual items, or **Source Locations** to apply visibility to all indexed media in a collection.
+
+### Downloadable Videos
+
+- In **Admin → Media Library → Edit Metadata**, enable **Allow users to download this video** per video.
+- Download controls are shown only for downloadable videos.
+- Before each download starts, users are prompted with an approximate file size warning.
+- For stitched virtual videos, users are warned that downloading will fetch the underlying source files in the stitched set.
 
 Admin bulk tools:
 - Media Library supports multi-select + bulk visibility updates for selected rows, plus quick visibility filters (All/Admin only/None)

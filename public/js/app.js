@@ -65,6 +65,79 @@
     return mb.toFixed(0) + ' MB';
   }
 
+  function isDownloadable(item) {
+    return Number(item?.downloadable) === 1;
+  }
+
+  function buildDownloadConfirmMessage(item, segmentsCount = 0) {
+    const sizeLabel = fmtSize(item?.size) || 'unknown size';
+    const name = String(item?.friendly_name || item?.file_name || 'this video');
+    if (item?.is_virtual) {
+      return `Download "${name}"?\n\nApproximate total size: ${sizeLabel}.\nThis stitched video will download ${segmentsCount} source file${segmentsCount === 1 ? '' : 's'}.`;
+    }
+    return `Download "${name}"?\n\nFile size: ${sizeLabel}.`;
+  }
+
+  function triggerDownload(mediaId) {
+    const a = document.createElement('a');
+    a.href = `/api/media/${encodeURIComponent(mediaId)}/download`;
+    a.download = '';
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+
+  async function startMediaDownload(mediaId, cardEl) {
+    const isVirtual = cardEl?.dataset?.mediaVirtual === '1';
+    const downloadable = cardEl?.dataset?.mediaDownloadable === '1';
+    const size = Number(cardEl?.dataset?.mediaSize) || 0;
+    const title = cardEl?.dataset?.mediaTitle || '';
+    const fileName = cardEl?.dataset?.mediaFileName || '';
+    const basicItem = { is_virtual: isVirtual ? 1 : 0, downloadable: downloadable ? 1 : 0, size, friendly_name: title, file_name: fileName };
+
+    if (!downloadable) {
+      showAppActionMessage('Downloads are disabled for this video');
+      return;
+    }
+
+    if (!isVirtual) {
+      if (!confirm(buildDownloadConfirmMessage(basicItem))) return;
+      triggerDownload(mediaId);
+      showAppActionMessage('Starting download…');
+      return;
+    }
+
+    let detail;
+    try {
+      const res = await fetch(`/api/media/${encodeURIComponent(mediaId)}`);
+      if (!res.ok) throw new Error('load failed');
+      detail = await res.json();
+    } catch {
+      showAppActionMessage('Unable to load stitched segments for download');
+      return;
+    }
+
+    if (!isDownloadable(detail)) {
+      showAppActionMessage('Downloads are disabled for this stitched video');
+      return;
+    }
+
+    const segments = Array.isArray(detail.segments)
+      ? detail.segments.filter(segment => Number(segment.downloadable) === 1)
+      : [];
+    if (!segments.length) {
+      showAppActionMessage('No downloadable source files are available');
+      return;
+    }
+
+    if (!confirm(buildDownloadConfirmMessage(detail, segments.length))) return;
+    segments.forEach((segment, idx) => {
+      setTimeout(() => triggerDownload(segment.id), idx * 250);
+    });
+    showAppActionMessage(`Starting ${segments.length} download${segments.length === 1 ? '' : 's'}…`);
+  }
+
   function buildWatchUrl(mediaId) {
     const qs = new URLSearchParams({ id: String(mediaId || '') });
     return `${window.location.origin}/watch.html?${qs.toString()}`;
@@ -495,6 +568,17 @@
 
   function initMediaCardShareButtons() {
     document.addEventListener('click', async event => {
+      const downloadAction = event.target.closest('[data-card-download-id]');
+      if (downloadAction) {
+        event.preventDefault();
+        event.stopPropagation();
+        const mediaId = String(downloadAction.getAttribute('data-card-download-id') || '').trim();
+        if (!mediaId) return;
+        const card = downloadAction.closest('.media-card');
+        await startMediaDownload(mediaId, card);
+        return;
+      }
+
       const shareAction = event.target.closest('[data-card-share-id]');
       if (shareAction) {
         event.preventDefault();
@@ -712,6 +796,11 @@
       : null;
     const tooltipText = buildCardTooltip(item, isVideo, collectionName);
     card.dataset.tooltip = tooltipText;
+    card.dataset.mediaVirtual = item.is_virtual ? '1' : '0';
+    card.dataset.mediaDownloadable = isDownloadable(item) ? '1' : '0';
+    card.dataset.mediaSize = String(Number(item.size) || 0);
+    card.dataset.mediaTitle = String(item.friendly_name || '');
+    card.dataset.mediaFileName = String(item.file_name || '');
     card.setAttribute('aria-label', tooltipText);
     if (previewUrl) {
       card.dataset.previewUrl = previewUrl;
@@ -722,6 +811,7 @@
     const rightBadges = [];
     if (isAdminOnlyVisible) leftBadges.push('<span class="card-visibility-badge">Admin Only</span>');
     if (item.is_virtual) leftBadges.push('<span class="card-collection-badge card-collection-badge--stitch">Stitched Video</span>');
+    if (isVideo && isDownloadable(item)) rightBadges.push('<span class="card-collection-badge card-downloadable-badge">Downloadable</span>');
     if (adminModeEnabled) {
       rightBadges.push(`<a class="card-admin-link" href="/admin/?tab=library&edit=${encodeURIComponent(item.id)}" title="Edit in admin">Edit</a>`);
     }
@@ -740,6 +830,7 @@
         ${rightBadges.length ? `<div class="card-right-badges">${rightBadges.join('')}</div>` : ''}
       </div>
       <div class="card-info">
+        ${isVideo && isDownloadable(item) ? `<button class="card-download-btn" type="button" data-card-download-id="${escHtml(item.id)}" aria-label="Download video">⬇</button>` : ''}
         <button class="card-share-btn" type="button" data-card-share-id="${escHtml(item.id)}" aria-label="Share video link">🔗</button>
         <div class="card-title">${name}</div>
         <div class="card-meta">

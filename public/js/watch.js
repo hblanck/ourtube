@@ -81,6 +81,75 @@
     return (bytes / 1e6).toFixed(0) + ' MB';
   }
 
+  function isDownloadable(media) {
+    return Number(media?.downloadable) === 1;
+  }
+
+  function buildDownloadConfirmMessage(media, segmentsCount = 0) {
+    const name = String(media?.friendly_name || media?.file_name || 'this video');
+    const size = fmtSize(media?.size) || 'unknown size';
+    if (media?.is_virtual) {
+      return `Download "${name}"?\n\nApproximate total size: ${size}.\nThis stitched video will download ${segmentsCount} source file${segmentsCount === 1 ? '' : 's'}.`;
+    }
+    return `Download "${name}"?\n\nFile size: ${size}.`;
+  }
+
+  function triggerDownload(mediaId) {
+    const a = document.createElement('a');
+    a.href = `/api/media/${encodeURIComponent(mediaId)}/download`;
+    a.download = '';
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+
+  async function loadMediaForDownload(targetMediaId) {
+    const res = await fetch(`/api/media/${encodeURIComponent(targetMediaId)}`);
+    if (!res.ok) throw new Error('Failed to load media');
+    return res.json();
+  }
+
+  async function startMediaDownload(media, fallbackMediaId = null) {
+    let targetMedia = media;
+    const mediaIdToLoad = fallbackMediaId || media?.id || mediaId;
+
+    if (!targetMedia || (targetMedia.is_virtual && !Array.isArray(targetMedia.segments))) {
+      try {
+        targetMedia = await loadMediaForDownload(mediaIdToLoad);
+      } catch {
+        showWatchActionMessage('Unable to load media for download');
+        return;
+      }
+    }
+
+    if (!isDownloadable(targetMedia)) {
+      showWatchActionMessage('Downloads are disabled for this video');
+      return;
+    }
+
+    if (!targetMedia.is_virtual) {
+      if (!confirm(buildDownloadConfirmMessage(targetMedia))) return;
+      triggerDownload(targetMedia.id || mediaIdToLoad);
+      showWatchActionMessage('Starting download…');
+      return;
+    }
+
+    const segments = Array.isArray(targetMedia.segments)
+      ? targetMedia.segments.filter(segment => Number(segment.downloadable) === 1)
+      : [];
+    if (!segments.length) {
+      showWatchActionMessage('No downloadable source files are available');
+      return;
+    }
+    if (!confirm(buildDownloadConfirmMessage(targetMedia, segments.length))) return;
+
+    segments.forEach((segment, idx) => {
+      setTimeout(() => triggerDownload(segment.id), idx * 250);
+    });
+    showWatchActionMessage(`Starting ${segments.length} download${segments.length === 1 ? '' : 's'}…`);
+  }
+
   function fmtDate(str) {
     if (!str) return '';
     try { return new Date(str).toLocaleDateString(); } catch { return str; }
@@ -182,20 +251,28 @@
   function bindShareVideoButton() {
     const wrap = document.getElementById('watch-actions');
     const btn = document.getElementById('share-video-btn');
-    if (!wrap || !btn) return;
+    const downloadBtn = document.getElementById('download-video-btn');
+    if (!wrap || !btn || !downloadBtn) return;
     if (!currentMedia || currentMedia.type !== 'video') {
       wrap.style.display = 'none';
       return;
     }
 
     wrap.style.display = 'flex';
-    if (btn.dataset.bound === '1') return;
+    downloadBtn.style.display = isDownloadable(currentMedia) ? '' : 'none';
+    if (btn.dataset.bound !== '1') {
+      btn.addEventListener('click', async () => {
+        const ok = await copyTextToClipboard(buildWatchUrl());
+        showWatchActionMessage(ok ? 'Video link copied to clipboard' : 'Unable to copy link');
+      });
+      btn.dataset.bound = '1';
+    }
 
-    btn.addEventListener('click', async () => {
-      const ok = await copyTextToClipboard(buildWatchUrl());
-      showWatchActionMessage(ok ? 'Video link copied to clipboard' : 'Unable to copy link');
+    if (downloadBtn.dataset.bound === '1') return;
+    downloadBtn.addEventListener('click', async () => {
+      await startMediaDownload(currentMedia, currentMedia?.id || mediaId);
     });
-    btn.dataset.bound = '1';
+    downloadBtn.dataset.bound = '1';
   }
 
   function closeBookmarkDialog() {
@@ -1218,6 +1295,8 @@
 
     const stitchedBadge = document.getElementById('stitched-badge');
     if (stitchedBadge) stitchedBadge.style.display = media.is_virtual ? 'inline-flex' : 'none';
+    const downloadableBadge = document.getElementById('watch-downloadable-badge');
+    if (downloadableBadge) downloadableBadge.style.display = isDownloadable(media) ? 'inline-flex' : 'none';
     const visibilityBadge = document.getElementById('watch-visibility-badge');
     const mediaIsAdminOnly = media.visibility === 'admin' || media.source_visibility === 'admin';
     if (visibilityBadge) visibilityBadge.style.display = adminModeEnabled && mediaIsAdminOnly ? 'inline-flex' : 'none';
@@ -1701,6 +1780,24 @@
           return;
         }
 
+        const downloadItem = event.target.closest('[data-related-download-id]');
+        if (downloadItem) {
+          event.preventDefault();
+          event.stopPropagation();
+          const targetId = String(downloadItem.getAttribute('data-related-download-id') || '').trim();
+          if (!targetId) return;
+          const relatedMedia = {
+            id: targetId,
+            is_virtual: downloadItem.getAttribute('data-related-virtual') === '1' ? 1 : 0,
+            downloadable: downloadItem.getAttribute('data-related-downloadable') === '1' ? 1 : 0,
+            size: Number(downloadItem.getAttribute('data-related-size') || 0) || 0,
+            friendly_name: downloadItem.getAttribute('data-related-name') || '',
+            file_name: downloadItem.getAttribute('data-related-file-name') || '',
+          };
+          await startMediaDownload(relatedMedia, targetId);
+          return;
+        }
+
         const linkCard = event.target.closest('.related-card[data-related-href]');
         if (linkCard) {
           window.location.href = linkCard.dataset.relatedHref || linkCard.getAttribute('data-related-href') || '';
@@ -1737,10 +1834,12 @@
                   loading="lazy" onerror="this.src='/img/no-thumb.svg'" />
              ${item.duration ? `<span class="related-duration">${fmtDur(item.duration)}</span>` : ''}
              ${item.is_virtual ? '<span class="related-badge">Stitched</span>' : ''}
-             ${adminModeEnabled && (item.visibility === 'admin' || item.source_visibility === 'admin') ? '<span class="related-badge related-badge-admin-only">Admin Only</span>' : ''}
+            ${isDownloadable(item) ? '<span class="related-badge related-badge-downloadable">Downloadable</span>' : ''}
+            ${adminModeEnabled && (item.visibility === 'admin' || item.source_visibility === 'admin') ? '<span class="related-badge related-badge-admin-only">Admin Only</span>' : ''}
            </div>
            <div class="related-info">
              <button class="related-share-btn" type="button" data-related-share-id="${escHtml(item.id)}" aria-label="Share video link">🔗</button>
+             ${isDownloadable(item) ? `<button class="related-download-btn" type="button" data-related-download-id="${escHtml(item.id)}" data-related-virtual="${item.is_virtual ? '1' : '0'}" data-related-downloadable="${isDownloadable(item) ? '1' : '0'}" data-related-size="${escHtml(String(Number(item.size) || 0))}" data-related-name="${escHtml(item.friendly_name || '')}" data-related-file-name="${escHtml(item.file_name || '')}" aria-label="Download video">⬇</button>` : ''}
              <div class="related-title">${escHtml(item.friendly_name || item.file_name)}</div>
             <div class="related-meta">${item.year || ''} ${item.location ? '· ' + escHtml(item.location) : ''}</div>
           </div>`;

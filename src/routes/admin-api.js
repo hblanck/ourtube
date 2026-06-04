@@ -105,6 +105,13 @@ function parseSqliteDate(value) {
   return Number.isNaN(parsed) ? null : parsed;
 }
 
+function normalizeDownloadableFlag(value) {
+  if (value === undefined || value === null) return null;
+  if (value === true || value === 1 || value === '1') return 1;
+  if (typeof value === 'string' && value.trim().toLowerCase() === 'true') return 1;
+  return 0;
+}
+
 function getScanScheduleSummary(db) {
   const rows = db.prepare(
     `SELECT name, scan_interval, last_scanned
@@ -839,7 +846,7 @@ router.delete('/blocked-clients/:id', (req, res) => {
 router.put('/media/:id', (req, res) => {
   const db = getDb();
 
-  const { friendly_name, description, location, year, tags, visibility } = req.body;
+  const { friendly_name, description, location, year, tags, visibility, downloadable } = req.body;
 
   // Handle virtual (stitched) media IDs — update all constituent segment rows
   const virtualRef = parseVirtualMediaId(req.params.id);
@@ -870,6 +877,7 @@ router.put('/media/:id', (req, res) => {
       ? JSON.stringify(Array.isArray(tags) ? tags : [])
       : null;
     const normVisibility = visibility !== undefined ? normalizeVisibility(visibility) : null;
+    const normDownloadable = normalizeDownloadableFlag(downloadable);
 
     const update = db.prepare(
       `UPDATE media SET
@@ -878,7 +886,8 @@ router.put('/media/:id', (req, res) => {
         location = COALESCE(?, location),
         year = COALESCE(?, year),
         tags = COALESCE(?, tags),
-        visibility = COALESCE(?, visibility)
+        visibility = COALESCE(?, visibility),
+        downloadable = COALESCE(?, downloadable)
       WHERE id = ?`
     );
     const updateAll = db.transaction(segments => {
@@ -890,6 +899,7 @@ router.put('/media/:id', (req, res) => {
           year !== undefined ? year : null,
           tagsJson,
           normVisibility,
+          normDownloadable,
           seg.id
         );
       }
@@ -910,7 +920,8 @@ router.put('/media/:id', (req, res) => {
       location = ?,
       year = ?,
       tags = COALESCE(?, tags),
-      visibility = COALESCE(?, visibility)
+      visibility = COALESCE(?, visibility),
+      downloadable = COALESCE(?, downloadable)
     WHERE id = ?`
   ).run(
     friendly_name ?? null,
@@ -919,6 +930,7 @@ router.put('/media/:id', (req, res) => {
     year !== undefined ? year : row.year,
     tags !== undefined ? JSON.stringify(Array.isArray(tags) ? tags : []) : null,
     visibility !== undefined ? normalizeVisibility(visibility) : null,
+    normalizeDownloadableFlag(downloadable),
     req.params.id
   );
 

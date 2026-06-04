@@ -113,6 +113,7 @@ function buildStandaloneItem(row) {
     is_virtual: 0,
     thumbnail_media_id: row.id,
     segment_count: 1,
+    downloadable: Number(row.downloadable) === 1 ? 1 : 0,
     tags: parseTags(row.tags)
   };
 }
@@ -149,6 +150,7 @@ function buildVirtualMediaItem(rows, options = {}) {
   const mergedSourceVisibility = String(
     firstRow.source_visibility || firstRow.source_location_visibility || 'all'
   ).toLowerCase();
+  const isDownloadable = orderedRows.every(row => Number(row.downloadable) === 1);
 
   const item = {
     id: buildVirtualMediaId(firstRow.source_location_id, groupPath),
@@ -182,7 +184,8 @@ function buildVirtualMediaItem(rows, options = {}) {
     segment_count: orderedRows.length,
     faces: [],
     visibility: mergedVisibility,
-    source_visibility: mergedSourceVisibility
+    source_visibility: mergedSourceVisibility,
+    downloadable: isDownloadable ? 1 : 0
   };
 
   if (options.includeSegments) {
@@ -192,9 +195,11 @@ function buildVirtualMediaItem(rows, options = {}) {
       file_name: row.file_name,
       friendly_name: row.friendly_name,
       duration: row.duration,
+      size: row.size,
       created_at: row.created_at,
       modified_at: row.modified_at,
-      thumbnail_path: row.thumbnail_path
+      thumbnail_path: row.thumbnail_path,
+      downloadable: Number(row.downloadable) === 1 ? 1 : 0
     }));
     item.raw_metadata = {
       stitched: true,
