@@ -100,4 +100,15 @@ describe('GET /stream/:id range handling', () => {
     const sessions = getActiveSessions();
     expect(sessions.some(s => s.ip === '203.0.113.10')).toBe(true);
   });
+
+  test('prefers x-real-ip over x-forwarded-for when both are present', async () => {
+    await request(app)
+      .get(`/stream/${mediaId}`)
+      .set('Range', 'bytes=10-19')
+      .set('X-Real-IP', '198.51.100.24')
+      .set('X-Forwarded-For', '203.0.113.88, 10.0.0.3');
+
+    const sessions = getActiveSessions();
+    expect(sessions.some(s => s.ip === '198.51.100.24')).toBe(true);
+  });
 });
