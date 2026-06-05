@@ -232,6 +232,16 @@ function isIntentionalKillError(err) {
 }
 
 function getClientIp(req) {
+  const xff = req.headers['x-forwarded-for'];
+  if (typeof xff === 'string' && xff.length > 0) {
+    return xff.split(',')[0].trim();
+  }
+
+  const xRealIp = req.headers['x-real-ip'];
+  if (typeof xRealIp === 'string' && xRealIp.length > 0) {
+    return xRealIp.trim();
+  }
+
   return req.ip || req.socket?.remoteAddress || 'unknown';
 }
 
@@ -632,7 +642,7 @@ router.get('/:id/transcode', (req, res) => {
       mediaId: req.params.id,
       title: path.basename(path.dirname(virtualSegments[0].file_path) || virtualSegments[0].file_name),
       type: 'transcode',
-      ip: req.ip || req.socket?.remoteAddress || 'unknown',
+      ip: clientIp,
       userAgent: req.headers['user-agent'] || '',
     });
 
@@ -766,7 +776,7 @@ router.get('/:id/transcode', (req, res) => {
     mediaId: row.id,
     title: row.title || path.basename(filePath),
     type: 'transcode',
-    ip: req.ip || req.socket?.remoteAddress || 'unknown',
+    ip: getClientIp(req),
     userAgent: req.headers['user-agent'] || '',
   });
 
@@ -877,7 +887,7 @@ router.get('/:id/concat', (req, res) => {
     mediaId: req.params.id,
     title: path.basename(path.dirname(virtualSegments[0].file_path) || virtualSegments[0].file_name),
     type: 'direct',
-    ip: req.ip || req.socket?.remoteAddress || 'unknown',
+    ip: getClientIp(req),
     userAgent: req.headers['user-agent'] || '',
   });
 
@@ -986,7 +996,7 @@ router.get('/:id', (req, res) => {
     mediaId: row.id,
     title: row.title || path.basename(filePath),
     type: 'direct',
-    ip: req.ip || req.socket?.remoteAddress || 'unknown',
+    ip: getClientIp(req),
     userAgent: req.headers['user-agent'] || '',
   });
 
