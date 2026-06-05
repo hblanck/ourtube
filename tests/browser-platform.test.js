@@ -7,6 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const express = require('express');
 const request = require('supertest');
+const packageJson = require('../package.json');
 
 const { initDb, getDb } = require('../src/db');
 const { buildVirtualMediaId } = require('../src/virtual-media');
@@ -114,6 +115,26 @@ describe('GET /api/ui-settings', () => {
     expect(res.body).toHaveProperty('photos_enabled');
     expect(res.body).toHaveProperty('stitched_prefer_compatibility');
     expect(typeof res.body.stitched_prefer_compatibility).toBe('boolean');
+  });
+
+  describe('GET /api/app-info', () => {
+    test.each(UA_ENTRIES)('%s — responds 200 with app version and docker metadata', async (_, ua) => {
+      const res = await get('/api/app-info', ua);
+      expect(res.status).toBe(200);
+      expect(res.body.app).toEqual(expect.objectContaining({
+        name: packageJson.name,
+        version: expect.stringMatching(/^v\d+\.\d+\.\d+(?:[-+].*)?$/),
+        semver: expect.objectContaining({
+          major: expect.any(Number),
+          minor: expect.any(Number),
+          patch: expect.any(Number),
+        }),
+      }));
+      expect(res.body.docker).toEqual(expect.objectContaining({
+        image: expect.any(String),
+        tags: expect.arrayContaining(['latest']),
+      }));
+    });
   });
 });
 

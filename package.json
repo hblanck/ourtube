@@ -7,7 +7,10 @@
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "admin:key:create": "node src/admin-key-cli.js create",
-    "test": "jest --forceExit"
+    "test": "jest --forceExit",
+    "version:patch": "npm version patch --no-git-tag-version",
+    "version:minor": "npm version minor --no-git-tag-version",
+    "version:major": "npm version major --no-git-tag-version"
   },
   "jest": {
     "testEnvironment": "node",

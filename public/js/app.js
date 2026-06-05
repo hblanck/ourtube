@@ -30,6 +30,7 @@
   let pendingTooltipCard = null;
   let pendingTooltipPoint = null;
   const TOOLTIP_HOVER_DELAY_MS = 180;
+  let appInfo = null;
 
   let previewStartTimer = null;
   let pendingPreviewCard = null;
@@ -232,6 +233,66 @@
       uiSettings = { photosEnabled: data.photos_enabled !== false };
     } catch {
       uiSettings = { photosEnabled: true };
+    }
+
+    function formatAppInfoTooltip(info) {
+      if (!info || typeof info !== 'object') return '';
+      const lines = [];
+      const appName = String(info.app?.name || 'ourtube');
+      const appVersion = String(info.app?.version || '').trim();
+      const dockerImage = String(info.docker?.image || '').trim();
+      const dockerTags = Array.isArray(info.docker?.tags)
+        ? info.docker.tags.map(tag => String(tag || '').trim()).filter(Boolean)
+        : [];
+
+      lines.push(`${appName} ${appVersion}`.trim());
+      if (dockerImage) lines.push(`Image: ${dockerImage}`);
+      if (dockerTags.length) lines.push(`Tags: ${dockerTags.join(', ')}`);
+      if (info.runtime?.nodeVersion) lines.push(`Node: ${String(info.runtime.nodeVersion).trim()}`);
+      if (info.runtime?.environment) lines.push(`Environment: ${String(info.runtime.environment).trim()}`);
+
+      return lines.join('\n');
+    }
+
+    function formatFooterInfo(info) {
+      const appVersion = String(info?.app?.version || '').trim();
+      const dockerTags = Array.isArray(info?.docker?.tags)
+        ? info.docker.tags.map(tag => String(tag || '').trim()).filter(Boolean)
+        : [];
+      const primaryTag = dockerTags.find(Boolean);
+      const parts = [];
+      if (appVersion) parts.push(`OurTube ${appVersion}`);
+      if (primaryTag) parts.push(`Docker ${primaryTag}`);
+      return parts.join(' · ');
+    }
+
+    function applyAppInfo() {
+      if (!appInfo) return;
+      const tooltip = formatAppInfoTooltip(appInfo);
+
+      document.querySelectorAll('.logo').forEach(logo => {
+        if (!tooltip) return;
+        logo.classList.add('has-app-tooltip');
+        logo.setAttribute('title', tooltip);
+        logo.setAttribute('data-app-tooltip', tooltip);
+      });
+
+      const footer = document.getElementById('app-info-footer-text');
+      if (footer) {
+        const footerText = formatFooterInfo(appInfo);
+        if (footerText) footer.textContent = footerText;
+      }
+    }
+
+    async function loadAppInfo() {
+      try {
+        const res = await fetch('/api/app-info');
+        if (!res.ok) return;
+        appInfo = await res.json();
+        applyAppInfo();
+      } catch {
+        // ignore
+      }
     }
   }
 
@@ -1179,7 +1240,7 @@
     initMediaCardShareButtons();
     initMediaCardTooltips();
     initMediaCardPreviews();
-    await Promise.all([loadFeatured(), loadStats(), loadYearFilter(), loadLocationFilter(), loadSourceLocationFilter()]);
+    await Promise.all([loadAppInfo(), loadFeatured(), loadStats(), loadYearFilter(), loadLocationFilter(), loadSourceLocationFilter()]);
     syncFilterControls();
     renderActiveFilters();
     await loadMedia(true);

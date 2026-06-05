@@ -173,6 +173,9 @@ Important persistence note:
 | `NAS_SHARE_PATH` | `/mnt/nas/videos` | Host path to your mounted NAS/media share |
 | `FACE_DETECTION_ENABLED` | `false` | Enable face detection (requires models in `$DATA_DIR/models/`) |
 | `STITCHED_PREFER_COMPATIBILITY` | _(auto)_ | Override stitched playback mode selection: `true` prefers compatibility streams, `false` prefers low-CPU concat first; default is concat-first |
+| `OURTUBE_APP_VERSION` | `package.json` version | Optional version override shown in UI/API app info tooltip/footer (expects semver, e.g. `1.2.3`) |
+| `OURTUBE_DOCKER_IMAGE` | `ghcr.io/hblanck/ourtube` | Docker image name shown in UI/API app info tooltip |
+| `OURTUBE_DOCKER_IMAGE_TAGS` | `v<version>,latest` | Comma-separated docker tags shown in UI/API app info tooltip/footer |
 | `ADMIN_SESSION_COOKIE_SECURE` | _(auto)_ | Force `Secure` flag for admin session cookie: `true`, `false`, or auto-detect from request HTTPS (`x-forwarded-proto=https`) |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | _(unset)_ | Base URL of your OTLP/HTTP collector – setting this enables OpenTelemetry |
 | `OTEL_SERVICE_NAME` | `ourtube` | Service name reported to the collector |
@@ -184,6 +187,22 @@ Important persistence note:
 | `JAEGER_UI_HOST_PORT` | `16686` | Host port published for Jaeger UI |
 | `PROMETHEUS_HOST_PORT` | `9090` | Host port published for Prometheus UI |
 | `GRAFANA_HOST_PORT` | `3001` | Host port published for Grafana UI |
+
+## Application Versioning (SemVer)
+
+OurTube now uses semantic versioning in `major.minor.patch` format.
+
+- Current source of truth: `package.json` → `version`
+- UI/API version display uses this version (or `OURTUBE_APP_VERSION` if explicitly overridden)
+- Recommended release flow:
+  1. Bump version with one of:
+     - `npm run version:patch`
+     - `npm run version:minor`
+     - `npm run version:major`
+  2. Commit the version bump before merge/release.
+  3. Let CI/docker publish build from that commit so tags and displayed version stay aligned.
+
+Recommended approach: keep version bumps manual at release time (clear human intent), while keeping image builds/tags automated in CI.
 
 ## OpenTelemetry (Observability)
 

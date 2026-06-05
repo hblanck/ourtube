@@ -3,6 +3,7 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const packageJson = require('../../package.json');
 const { getDb } = require('../db');
 const {
   aggregateMediaRows,
@@ -40,6 +41,28 @@ function parseBooleanEnv(value) {
   if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
   if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
   return null;
+}
+
+function parseSemver(version) {
+  const normalized = String(version || '').trim().replace(/^v/i, '');
+  const match = normalized.match(/^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/);
+  if (!match) return null;
+  return {
+    raw: normalized,
+    display: `v${normalized}`,
+    major: Number(match[1]),
+    minor: Number(match[2]),
+    patch: Number(match[3]),
+  };
+}
+
+function parseDockerTags(rawTags) {
+  const input = String(rawTags || '').trim();
+  if (!input) return [];
+  return input
+    .split(',')
+    .map(tag => String(tag || '').trim())
+    .filter(Boolean);
 }
 
 function shouldPreferStitchedCompatibilityPlayback() {
@@ -208,6 +231,41 @@ router.get('/ui-settings', (req, res) => {
     photos_enabled: isPhotosEnabled(db),
     external_base_url: normalizeExternalBaseUrl(getSettingValue(db, 'external_base_url', '')),
     stitched_prefer_compatibility: shouldPreferStitchedCompatibilityPlayback(),
+  });
+});
+
+// GET /api/app-info
+router.get('/app-info', (_req, res) => {
+  const semver = parseSemver(process.env.OURTUBE_APP_VERSION || packageJson.version || '0.0.0')
+    || { raw: '0.0.0', display: 'v0.0.0', major: 0, minor: 0, patch: 0 };
+  const configuredImage = String(process.env.OURTUBE_DOCKER_IMAGE || '').trim();
+  const image = configuredImage || 'ghcr.io/hblanck/ourtube';
+  const envTags = parseDockerTags(process.env.OURTUBE_DOCKER_IMAGE_TAGS);
+  const tags = [...new Set([
+    ...envTags,
+    semver.display,
+    'latest',
+  ])];
+
+  res.json({
+    app: {
+      name: packageJson.name,
+      description: packageJson.description || '',
+      version: semver.display,
+      semver: {
+        major: semver.major,
+        minor: semver.minor,
+        patch: semver.patch,
+      },
+    },
+    docker: {
+      image,
+      tags,
+    },
+    runtime: {
+      nodeVersion: process.version,
+      environment: process.env.NODE_ENV || 'development',
+    },
   });
 });
 
