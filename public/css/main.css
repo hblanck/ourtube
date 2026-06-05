@@ -758,7 +758,7 @@ a { color: inherit; text-decoration: none; }
 }
 
 .card-info {
-  padding: 10px 40px 12px 12px;
+  padding: 10px 72px 12px 12px;
   position: relative;
 }
 
@@ -779,6 +779,34 @@ a { color: inherit; text-decoration: none; }
   align-items: center;
   justify-content: center;
   z-index: 5;
+}
+
+.card-download-btn {
+  position: absolute;
+  top: 8px;
+  right: 40px;
+  width: 26px;
+  height: 26px;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.96);
+  color: #1f2937;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 5;
+}
+
+.card-download-btn:hover {
+  background: #fff;
+}
+
+.card-downloadable-badge {
+  background: rgba(13, 148, 136, 0.9);
+  color: #ecfeff;
 }
 
 .card-share-btn:hover {
@@ -1118,6 +1146,11 @@ a { color: inherit; text-decoration: none; }
 .watch-badge-admin-only {
   background: #7f1d1d;
   color: #fff4e6;
+}
+
+.watch-badge-downloadable {
+  background: #0f766e;
+  color: #ecfeff;
 }
 
 .media-meta {
@@ -1535,6 +1568,31 @@ a { color: inherit; text-decoration: none; }
   background: #ffffff;
 }
 
+.related-download-btn {
+  position: absolute;
+  top: 50%;
+  right: 38px;
+  transform: translateY(-50%);
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.22);
+  color: #1f2937;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 3;
+}
+
+.related-download-btn:hover {
+  background: #ffffff;
+}
+
 .related-thumb {
   width: 100%;
   height: 100%;
@@ -1570,6 +1628,14 @@ a { color: inherit; text-decoration: none; }
   left: auto;
   right: 4px;
   background: rgba(153, 27, 27, 0.94);
+}
+
+.related-badge-downloadable {
+  left: auto;
+  right: 4px;
+  top: 24px;
+  background: rgba(13, 148, 136, 0.92);
+  color: #ecfeff;
 }
 
 .related-info {

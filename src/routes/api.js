@@ -1,6 +1,8 @@
 'use strict';
 
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
 const { getDb } = require('../db');
 const {
   aggregateMediaRows,
@@ -281,7 +283,7 @@ router.get('/media', (req, res) => {
 
   const rows = db.prepare(
     `SELECT m.id, m.type, m.file_path, m.file_name, m.friendly_name, m.description, m.duration, m.width, m.height,
-            m.size, m.thumbnail_path, m.year, m.location, m.tags, m.faces_detected, m.view_count,
+            m.size, m.thumbnail_path, m.year, m.location, m.tags, m.faces_detected, m.view_count, m.downloadable,
           m.visibility,
             m.source_location_id, sl.name AS source_location_name, sl.path AS source_location_path,
           sl.visibility AS source_visibility,
@@ -334,7 +336,7 @@ router.get('/media/featured', (req, res) => {
 
   const rows = db.prepare(
     `SELECT m.id, m.type, m.file_path, m.file_name, m.friendly_name, m.description, m.duration, m.width, m.height,
-            m.size, m.thumbnail_path, m.year, m.location, m.tags, m.faces_detected, m.view_count,
+            m.size, m.thumbnail_path, m.year, m.location, m.tags, m.faces_detected, m.view_count, m.downloadable,
           m.visibility,
             m.source_location_id, sl.name AS source_location_name, sl.path AS source_location_path,
           sl.visibility AS source_visibility,
@@ -384,7 +386,7 @@ router.get('/media/:id', (req, res) => {
   if (virtualRef) {
     const rows = db.prepare(
             `SELECT m.id, m.type, m.file_path, m.file_name, m.friendly_name, m.description, m.duration, m.width, m.height,
-              m.size, m.thumbnail_path, m.year, m.location, m.tags, m.faces_detected, m.view_count,
+              m.size, m.thumbnail_path, m.year, m.location, m.tags, m.faces_detected, m.view_count, m.downloadable,
               m.visibility AS media_visibility, sl.visibility AS source_visibility,
               m.source_location_id, sl.name AS source_location_name, sl.path AS source_location_path,
               sl.stitch_directories,
@@ -462,6 +464,30 @@ router.get('/media/:id', (req, res) => {
 
   row.faces = faces;
   res.json(row);
+});
+
+// GET /api/media/:id/download
+router.get('/media/:id/download', (req, res) => {
+  const db = getDb();
+
+  if (parseVirtualMediaId(req.params.id)) {
+    return res.status(400).json({ error: 'Virtual media downloads must be downloaded as source files.' });
+  }
+
+  const row = db.prepare(
+    `SELECT m.id, m.type, m.file_path, m.file_name, m.downloadable,
+            m.visibility AS media_visibility, sl.visibility AS source_visibility
+       FROM media m
+       LEFT JOIN source_locations sl ON sl.id = m.source_location_id
+      WHERE m.id = ?`
+  ).get(req.params.id);
+  if (!row || row.type !== 'video') return res.status(404).json({ error: 'Not found' });
+  if (!canAccessFromRow(row, req)) return res.status(404).json({ error: 'Not found' });
+  if (Number(row.downloadable) !== 1) return res.status(403).json({ error: 'Downloads disabled for this media' });
+  if (!fs.existsSync(row.file_path)) return res.status(404).json({ error: 'File not found' });
+
+  const fileName = String(row.file_name || path.basename(row.file_path) || 'video');
+  res.download(row.file_path, fileName);
 });
 
 // GET /api/media/:id/bookmarks

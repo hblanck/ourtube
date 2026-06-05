@@ -85,6 +85,7 @@
         <div class="media-title-row">
           <h1 id="media-title" class="media-title">Loading…</h1>
           <span id="stitched-badge" class="watch-badge" style="display:none">Stitched Video</span>
+          <span id="watch-downloadable-badge" class="watch-badge watch-badge-downloadable" style="display:none">Downloadable</span>
           <span id="watch-visibility-badge" class="watch-badge watch-badge-admin-only" style="display:none">Admin Only</span>
           <a id="watch-admin-edit" class="watch-badge" style="display:none" href="/admin/?tab=library">Edit Metadata</a>
         </div>
@@ -106,6 +107,13 @@
               title="Share video"
               aria-label="Share video"
             >🔗</button>
+            <button
+              id="download-video-btn"
+              class="btn btn-secondary btn-small watch-action-icon-btn"
+              type="button"
+              title="Download video"
+              aria-label="Download video"
+            >⬇</button>
           </div>
         </div>
         <div class="media-desc" id="media-desc"></div>

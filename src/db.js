@@ -71,7 +71,8 @@ function initDb() {
       tags TEXT DEFAULT '[]',
       faces_detected INTEGER DEFAULT 0,
       raw_metadata TEXT DEFAULT '{}',
-      view_count INTEGER DEFAULT 0
+      view_count INTEGER DEFAULT 0,
+      downloadable INTEGER NOT NULL DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS faces (
@@ -217,6 +218,7 @@ function initDb() {
   ensureColumn('source_locations', 'stitch_directories', 'INTEGER NOT NULL DEFAULT 0');
   ensureColumn('source_locations', 'visibility', "TEXT NOT NULL DEFAULT 'all'");
   ensureColumn('media', 'visibility', "TEXT NOT NULL DEFAULT 'all'");
+  ensureColumn('media', 'downloadable', 'INTEGER NOT NULL DEFAULT 0');
 
   // Insert default settings if not present
   const insertSetting = db.prepare(

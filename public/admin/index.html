@@ -628,6 +628,12 @@
           <label class="form-label">Tags (comma separated)</label>
           <input type="text" name="tags" class="form-input" placeholder="family, vacation, 2023" />
         </div>
+        <div class="form-group">
+          <label class="form-label form-label-check-top">
+            <input type="checkbox" name="downloadable" value="1" />
+            <span>Allow users to download this video</span>
+          </label>
+        </div>
 
         <div class="form-group">
           <label class="form-label">Thumbnail</label>
@@ -2008,6 +2014,7 @@
     form.querySelector('[name=visibility]').value = m.visibility || 'all';
     const tags = Array.isArray(m.tags) ? m.tags : [];
     form.querySelector('[name=tags]').value = tags.join(', ');
+    form.querySelector('[name=downloadable]').checked = Number(m.downloadable) === 1;
 
     currentFaces = m.faces || [];
     renderFaceList();
@@ -2080,7 +2087,8 @@
       year: form.querySelector('[name=year]').value ? parseInt(form.querySelector('[name=year]').value) : null,
       location: form.querySelector('[name=location]').value,
       visibility: form.querySelector('[name=visibility]').value,
-      tags
+      tags,
+      downloadable: form.querySelector('[name=downloadable]').checked ? 1 : 0
     };
 
     const saveRes = await adminFetch(`/api/admin/media/${id}`, {
