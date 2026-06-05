@@ -37,6 +37,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Generate additional image tags
+        id: build-tags
+        run: |
+          timestamp="$(date -u '+%Y%m%dT%H%M%SZ')"
+          nouns=(atlas beacon canyon cedar comet ember falcon harbor lantern meadow nebula orchard pebble summit willow)
+          noun="${nouns[$((RANDOM % ${#nouns[@]}))]}"
+          {
+            echo "timestamp=${timestamp}"
+            echo "noun=${noun}"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -45,6 +56,8 @@ jobs:
           tags: |
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
             type=sha,prefix=sha-,format=short
+            type=raw,value=${{ steps.build-tags.outputs.timestamp }}
+            type=raw,value=${{ steps.build-tags.outputs.noun }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
