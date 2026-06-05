@@ -9,6 +9,7 @@ const request = require('supertest');
 
 const { initDb, getDb } = require('../src/db');
 const streamRouter = require('../src/routes/stream');
+const { getActiveSessions } = require('../src/sessions');
 
 let app;
 const mediaId = 'range-test-video';
@@ -88,5 +89,26 @@ describe('GET /stream/:id range handling', () => {
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toContain('video/mp4');
     expect(res.headers['transfer-encoding']).toBe('chunked');
+  });
+
+  test('uses forwarded client IP when creating stream sessions', async () => {
+    await request(app)
+      .get(`/stream/${mediaId}`)
+      .set('Range', 'bytes=0-9')
+      .set('X-Forwarded-For', '203.0.113.10, 10.0.0.2');
+
+    const sessions = getActiveSessions();
+    expect(sessions.some(s => s.ip === '203.0.113.10')).toBe(true);
+  });
+
+  test('prefers x-real-ip over x-forwarded-for when both are present', async () => {
+    await request(app)
+      .get(`/stream/${mediaId}`)
+      .set('Range', 'bytes=10-19')
+      .set('X-Real-IP', '198.51.100.24')
+      .set('X-Forwarded-For', '203.0.113.88, 10.0.0.3');
+
+    const sessions = getActiveSessions();
+    expect(sessions.some(s => s.ip === '198.51.100.24')).toBe(true);
   });
 });
