@@ -137,6 +137,9 @@ function parseSafariProbeRange(rangeHeader) {
   if (!rangeMatch) return null;
   const start = parseInt(rangeMatch[1], 10);
   const requestedEndRaw = rangeMatch[2];
+  // Open-ended ranges such as "bytes=0-" are normal playback requests in
+  // Chromium browsers and must not be treated as tiny Safari probes.
+  if (requestedEndRaw === '') return null;
   const end = requestedEndRaw === '' ? 1 : parseInt(requestedEndRaw, 10);
   const length = end - start + 1;
   if (!Number.isFinite(start) || !Number.isFinite(end)) return null;

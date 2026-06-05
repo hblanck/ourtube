@@ -78,4 +78,15 @@ describe('GET /stream/:id range handling', () => {
     expect(res.status).toBe(416);
     expect(res.headers['content-range']).toBe(`bytes */${fixtureBytes.length}`);
   });
+
+  test('does not treat open-ended ranges as Safari probe on transcode endpoint', async () => {
+    const res = await request(app)
+      .get(`/stream/${mediaId}/transcode`)
+      .set('Range', 'bytes=0-');
+
+    // Regression guard: this used to incorrectly return a 2-byte 206 probe response.
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('video/mp4');
+    expect(res.headers['transfer-encoding']).toBe('chunked');
+  });
 });
