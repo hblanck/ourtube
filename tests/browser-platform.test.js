@@ -278,6 +278,23 @@ describe('GET /stream/:id/transcode — direct video Safari byte-range probe', (
   );
 });
 
+describe('GET /stream/:id — direct MOV stream content type', () => {
+  const SAFARI_UAS = [
+    ['Safari on macOS', USER_AGENTS['Safari on macOS']],
+    ['Safari on iOS', USER_AGENTS['Safari on iOS']],
+  ];
+
+  test.each(SAFARI_UAS)(
+    '%s — returns QuickTime content type for direct MOV playback',
+    async (_, ua) => {
+      const res = await get(`/stream/${directMediaId}`, ua);
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toMatch(/^video\/quicktime/);
+      expect(res.headers['accept-ranges']).toBe('bytes');
+    }
+  );
+});
+
 // ─── Stream: Non-Safari browsers — transcode without range header ─────────────
 
 describe('GET /stream/:virtualId/transcode — non-Safari browsers without Range header', () => {
