@@ -678,8 +678,8 @@
   }
 
   function shouldUseHlsCompatibility(media) {
-    // Prefer HLS first on Apple Safari for stitched playback.
-    return !!media?.is_virtual && (isLikelyIOS() || isSafariOnMacOS());
+    // Prefer HLS first on Apple Safari for broadest playback compatibility.
+    return !!media && (isLikelyIOS() || isSafariOnMacOS());
   }
 
   function seekStitchedPlayback(targetSeconds) {
@@ -1264,8 +1264,7 @@
 
   function getAvailablePlaybackModes(media) {
     if (!media || media.type !== 'video') return ['auto'];
-    const modes = ['auto', 'direct', 'transcode'];
-    if (media.is_virtual) modes.push('hls');
+    const modes = ['auto', 'direct', 'transcode', 'hls'];
     return modes;
   }
 

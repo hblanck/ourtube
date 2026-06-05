@@ -85,6 +85,21 @@ function getVirtualSegmentRows(db, mediaId, req) {
   return sortSegmentRows(segmentRows);
 }
 
+function getDirectVideoRow(db, mediaId, req) {
+  if (isVirtualMediaId(mediaId)) return null;
+  const row = db.prepare(
+    `SELECT m.*, m.visibility AS media_visibility, sl.visibility AS source_visibility
+       FROM media m
+       LEFT JOIN source_locations sl ON sl.id = m.source_location_id
+      WHERE m.id = ?`
+  ).get(mediaId);
+  if (!row) return null;
+  if (!canAccessFromRow(row, req)) return null;
+  if (row.type !== 'video') return null;
+  if (!row.file_path || !fs.existsSync(row.file_path)) return null;
+  return row;
+}
+
 function getAudioCodec(row) {
   try {
     const raw = JSON.parse(row.raw_metadata || '{}');
@@ -448,6 +463,63 @@ function ensureVirtualHlsJob(mediaId, req) {
   return job;
 }
 
+function ensureDirectHlsJob(mediaId, req) {
+  const existing = activeHlsJobs.get(mediaId);
+  if (existing) {
+    touchHlsJob(existing);
+    return existing;
+  }
+
+  const db = getDb();
+  const row = getDirectVideoRow(db, mediaId, req);
+  if (!row) return null;
+
+  const hlsRoot = path.join(DATA_DIR, 'tmp', 'hls');
+  fs.mkdirSync(hlsRoot, { recursive: true });
+
+  const jobDir = path.join(hlsRoot, `${sanitizeForPath(mediaId)}-${Date.now().toString(36)}`);
+  fs.mkdirSync(jobDir, { recursive: true });
+
+  const playlistPath = path.join(jobDir, 'index.m3u8');
+  const segmentPattern = path.join(jobDir, 'seg-%06d.ts');
+  const diag = createFfmpegDiagnostics(`hls direct ${mediaId}`);
+
+  const job = {
+    mediaId,
+    dir: jobDir,
+    playlistPath,
+    concatListPath: null,
+    cmd: null,
+    stopped: false,
+    lastAccess: Date.now(),
+    telemetryStartedAt: telemetry.startTranscodeJob('hls'),
+  };
+
+  const cmd = ffmpeg(row.file_path)
+    .videoCodec('libx264')
+    .audioCodec('aac')
+    .format('hls')
+    .outputOptions(getHlsCompatibilityOptions(segmentPattern))
+    .output(playlistPath)
+    .on('start', commandLine => diag.onStart(commandLine))
+    .on('stderr', line => diag.onStderr(line))
+    .on('error', err => {
+      if (job.stopped && isIntentionalKillError(err)) return;
+      diag.logErrorContext(err);
+      console.error('[stream] Direct HLS transcode error:', err.message);
+      disposeHlsJob(mediaId, 'ffmpeg-error');
+    })
+    .on('end', () => {
+      console.info(`[stream] HLS encode complete id=${mediaId}`);
+      touchHlsJob(job);
+    });
+
+  job.cmd = cmd;
+  activeHlsJobs.set(mediaId, job);
+  cmd.run();
+  return job;
+}
+
 function getExistingVirtualHlsJob(mediaId) {
   return activeHlsJobs.get(mediaId) || null;
 }
@@ -456,11 +528,9 @@ function getExistingVirtualHlsJob(mediaId) {
 router.get('/:id/hls/index.m3u8', async (req, res) => {
   if (checkClientBlocked(req, res)) return;
   telemetry.recordStreamRequest();
-  if (!isVirtualMediaId(req.params.id)) {
-    return res.status(400).json({ error: 'HLS compatibility is available for virtual videos only' });
-  }
-
-  const job = ensureVirtualHlsJob(req.params.id, req);
+  const job = isVirtualMediaId(req.params.id)
+    ? ensureVirtualHlsJob(req.params.id, req)
+    : ensureDirectHlsJob(req.params.id, req);
   if (!job) return res.status(404).json({ error: 'Not found' });
 
   touchHlsJob(job);
@@ -478,10 +548,6 @@ router.get('/:id/hls/index.m3u8', async (req, res) => {
 router.get('/:id/hls/:segment', async (req, res) => {
   if (checkClientBlocked(req, res)) return;
   telemetry.recordStreamRequest();
-  if (!isVirtualMediaId(req.params.id)) {
-    return res.status(400).json({ error: 'HLS compatibility is available for virtual videos only' });
-  }
-
   const segmentName = String(req.params.segment || '');
   if (!/^seg-\d{6}\.ts$/.test(segmentName)) {
     return res.status(404).json({ error: 'Not found' });
