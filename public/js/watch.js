@@ -27,6 +27,8 @@
   let clipWatermarkMode = 'full';
   let hlsStartupRetryTimer = null;
   let hlsStartupRetryCount = 0;
+  let hlsStartupFallbackTimer = null;
+  let hlsStartupFallbackTried = false;
   let transcodeStartupFallbackTimer = null;
   let transcodeStartupFallbackTried = false;
   let concatDurationFallbackTimer = null;
@@ -544,6 +546,12 @@
     hlsStartupRetryTimer = null;
   }
 
+  function clearHlsStartupFallback() {
+    if (!hlsStartupFallbackTimer) return;
+    clearTimeout(hlsStartupFallbackTimer);
+    hlsStartupFallbackTimer = null;
+  }
+
   function clearTranscodeStartupFallback() {
     if (!transcodeStartupFallbackTimer) return;
     clearTimeout(transcodeStartupFallbackTimer);
@@ -614,6 +622,41 @@
         player.play().catch(() => {});
       }
     }, 1800);
+  }
+
+  function scheduleHlsStartupFallback(media) {
+    clearHlsStartupFallback();
+    if (!player || !media) return;
+    if (compatibilityTransport !== 'hls') return;
+    if (hlsStartupFallbackTried) return;
+
+    hlsStartupFallbackTimer = setTimeout(() => {
+      if (!player || compatibilityTransport !== 'hls') return;
+
+      const readyState = typeof player.readyState === 'function' ? Number(player.readyState()) : 0;
+      if (Number.isFinite(readyState) && readyState >= 2) return;
+
+      hlsStartupFallbackTried = true;
+      forcedCompatibilityTransport = 'transcode';
+      compatibilityTransport = 'transcode';
+      const shouldResume = !player.paused();
+
+      const warning = document.getElementById('playback-warning');
+      if (warning) {
+        warning.textContent = 'HLS playback is still starting. Switching to MP4 compatibility mode...';
+        warning.style.display = 'block';
+      }
+
+      setVideoSource(media, true);
+      if (shouldResume) {
+        const resumeOnce = () => {
+          player.play().catch(() => {});
+        };
+        player.one('loadedmetadata', resumeOnce);
+        player.one('canplay', resumeOnce);
+        player.play().catch(() => {});
+      }
+    }, 6500);
   }
 
   function scheduleTranscodeStartupFallback(media) {
@@ -836,7 +879,9 @@
     const compatibilityBadge = document.getElementById('compatibility-badge');
     if (compatibilityBadge) compatibilityBadge.style.display = 'none';
     transcodeFallbackTried = false;
+    hlsStartupFallbackTried = false;
     transcodeStartupFallbackTried = false;
+    clearHlsStartupFallback();
     clearTranscodeStartupFallback();
     clearConcatDurationFallback();
     expectedDuration = media.duration || 0;
@@ -927,6 +972,19 @@
       runtimeStats.lastError = errorText ? String(errorText) : 'unknown playback error';
       updateAdminDiagnostics();
 
+      if (!transcodeFallbackTried && compatibilityTransport === 'hls') {
+        transcodeFallbackTried = true;
+        forcedCompatibilityTransport = 'transcode';
+        const warning = document.getElementById('playback-warning');
+        if (warning) {
+          warning.textContent = 'HLS playback failed. Trying MP4 compatibility mode...';
+          warning.style.display = 'block';
+        }
+        setVideoSource(media, true);
+        player.play().catch(() => {});
+        return;
+      }
+
       if (!transcodeFallbackTried && compatibilityTransport !== 'transcode') {
         transcodeFallbackTried = true;
         const warning = document.getElementById('playback-warning');
@@ -952,6 +1010,7 @@
   function setVideoSource(media, useTranscode) {
     if (!player) return;
     clearHlsStartupRetry();
+    clearHlsStartupFallback();
     clearTranscodeStartupFallback();
     clearConcatDurationFallback();
     compatibilityMode = useTranscode;
@@ -966,6 +1025,7 @@
         if (warning) warning.style.display = 'none';
         player.src({ src: buildHlsUrl(media), type: 'application/x-mpegURL' });
         scheduleHlsStartupRetry(media);
+        scheduleHlsStartupFallback(media);
         updateStitchedProgress();
         updateCurrentClipWatermark();
         return;
