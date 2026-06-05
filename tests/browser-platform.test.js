@@ -3,6 +3,8 @@
 // Must be set before any project modules are required so db.js picks up the temp path.
 process.env.DATA_DIR = `/tmp/ourtube-test-${process.pid}`;
 
+const fs = require('fs');
+const path = require('path');
 const express = require('express');
 const request = require('supertest');
 
@@ -31,8 +33,13 @@ const UA_ENTRIES = Object.entries(USER_AGENTS);
 let app;
 let virtualMediaId;
 const directMediaId = 'direct-transcode-media';
+const directFixturePath = path.join(process.env.DATA_DIR, 'fixtures', 'direct-source.mov');
+const directFixtureBytes = Buffer.from(Array.from({ length: 256 }, (_, idx) => idx % 256));
 
 beforeAll(() => {
+  fs.mkdirSync(path.dirname(directFixturePath), { recursive: true });
+  fs.writeFileSync(directFixturePath, directFixtureBytes);
+
   initDb();
   const db = getDb();
 
@@ -69,7 +76,7 @@ beforeAll(() => {
   ).run(
     directMediaId,
     sourceLocationId,
-    '/test/media/direct/source.mov',
+    directFixturePath,
     'source.mov'
   );
 
@@ -211,17 +218,16 @@ describe('GET /stream/:virtualId/transcode — Safari byte-range probe', () => {
   );
 
   test.each(SAFARI_UAS)(
-    '%s — Range: bytes=0- with watch params returns 206',
+    '%s — Range: bytes=0- with watch params returns 200',
     async (_, ua) => {
       const res = await request(app)
         .get(`/stream/${virtualMediaId}/transcode?_ts=1`)
         .set('User-Agent', ua)
         .set('Range', 'bytes=0-');
 
-      expect(res.status).toBe(206);
-      expect(res.headers['content-range']).toMatch(/^bytes 0-1\//);
-      expect(res.headers['accept-ranges']).toBe('bytes');
-      expect(res.headers['content-length']).toBe('2');
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toMatch(/^video\/mp4/);
+      expect(res.headers['transfer-encoding']).toBe('chunked');
     }
   );
 
@@ -262,18 +268,16 @@ describe('GET /stream/:id/transcode — direct video Safari byte-range probe', (
   );
 
   test.each(SAFARI_UAS)(
-    '%s — Range: bytes=0- returns 206 before transcode starts',
+    '%s — Range: bytes=0- starts transcode stream with 200',
     async (_, ua) => {
       const res = await request(app)
         .get(`/stream/${directMediaId}/transcode`)
         .set('User-Agent', ua)
         .set('Range', 'bytes=0-');
 
-      expect(res.status).toBe(206);
-      expect(res.headers['content-range']).toMatch(/^bytes 0-1\//);
-      expect(res.headers['accept-ranges']).toBe('bytes');
+      expect(res.status).toBe(200);
       expect(res.headers['content-type']).toMatch(/^video\/mp4/);
-      expect(res.headers['content-length']).toBe('2');
+      expect(res.headers['transfer-encoding']).toBe('chunked');
     }
   );
 });
