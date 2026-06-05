@@ -119,9 +119,7 @@ function getStreamMimeType(row, filePath) {
   if (ext === '.webm') return 'video/webm';
   if (ext === '.mp4' || ext === '.m4v') return 'video/mp4';
   if (ext === '.mov') {
-    const videoOk = ['h264', 'avc1'].includes(videoCodec);
-    const audioOk = !audioCodec || ['aac', 'mp3'].includes(audioCodec);
-    return videoOk && audioOk ? 'video/mp4' : 'video/quicktime';
+    return 'video/quicktime';
   }
 
   return mime.lookup(filePath) || 'video/mp4';

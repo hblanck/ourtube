@@ -721,8 +721,9 @@
   }
 
   function shouldUseHlsCompatibility(media) {
-    // Prefer HLS first on Apple Safari for broadest playback compatibility.
-    return !!media && (isLikelyIOS() || isSafariOnMacOS());
+    // Keep Safari on HLS for stitched/virtual media only; direct media already
+    // has a Safari-safe MP4 transcode path and is more reliable there.
+    return !!media?.is_virtual && (isLikelyIOS() || isSafariOnMacOS());
   }
 
   function seekStitchedPlayback(targetSeconds) {
@@ -1094,7 +1095,7 @@
     const ext = (media.file_name || '').split('.').pop().toLowerCase();
     if (ext === 'webm') return 'video/webm';
     if (['mp4', 'm4v'].includes(ext)) return 'video/mp4';
-    if (ext === 'mov' && canPlayDirectly(media)) return 'video/mp4';
+    if (ext === 'mov' && canPlayDirectly(media)) return 'video/quicktime';
     if (ext === 'mov') return 'video/quicktime';
     return 'video/mp4';
   }
