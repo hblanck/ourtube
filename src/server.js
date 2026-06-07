@@ -21,9 +21,49 @@ const adminApiRouter = require('./routes/admin-api');
 const streamRouter = require('./routes/stream');
 const { requireAdminAuth, getConfiguredAdminKeyCount } = require('./admin-auth');
 const { canAccessFromRow } = require('./visibility');
+const { getDockerImageCreatedAt } = require('./image-metadata');
+const packageJson = require('../package.json');
 
 const PORT = parseInt(process.env.PORT) || 3000;
 const DATA_DIR = process.env.DATA_DIR || '/data';
+
+function parseSemver(version) {
+  const normalized = String(version || '').trim().replace(/^v/i, '');
+  const match = normalized.match(/^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/);
+  if (!match) return null;
+  return {
+    raw: normalized,
+    display: `v${normalized}`,
+  };
+}
+
+function parseDockerTags(rawTags) {
+  const input = String(rawTags || '').trim();
+  if (!input) return [];
+  return input
+    .split(',')
+    .map(tag => String(tag || '').trim())
+    .filter(Boolean);
+}
+
+function getDockerStartupDetails() {
+  const semver = parseSemver(process.env.OURTUBE_APP_VERSION || packageJson.version || '0.0.0')
+    || { raw: '0.0.0', display: 'v0.0.0' };
+  const configuredImage = String(process.env.OURTUBE_DOCKER_IMAGE || '').trim();
+  const image = configuredImage || 'ghcr.io/hblanck/ourtube';
+  const envTags = parseDockerTags(process.env.OURTUBE_DOCKER_IMAGE_TAGS);
+  const tags = [...new Set([
+    ...envTags,
+    semver.display,
+    'latest',
+  ])];
+
+  return {
+    image,
+    tags,
+    createdAt: getDockerImageCreatedAt(),
+  };
+}
 
 const app = express();
 const PLAYBACK_SESSION_COOKIE = 'ourtube_playback_session';
@@ -257,6 +297,17 @@ schedule.scheduleJob('* * * * *', async () => {
 });
 
 app.listen(PORT, () => {
+  const docker = getDockerStartupDetails();
+  const tags = docker.tags.length ? docker.tags.join(', ') : 'none';
+  const createdAt = docker.createdAt || 'unknown';
+  const startupImageLog = {
+    event: 'startup.image_details',
+    image: docker.image,
+    tags: docker.tags,
+    created_at: createdAt,
+  };
+  console.log(`[server] ${JSON.stringify(startupImageLog)}`);
+  console.log(`[server] Image details: image=${docker.image} tags=[${tags}] created_at=${createdAt}`);
   console.log(`[server] OurTube running on http://0.0.0.0:${PORT}`);
   console.log(`[server] Data directory: ${DATA_DIR}`);
 });

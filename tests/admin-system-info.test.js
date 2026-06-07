@@ -78,6 +78,14 @@ describe('GET /api/admin/system-info', () => {
       name: 'ourtube',
       version: expect.any(String),
     }));
+    expect(res.body.docker).toEqual(expect.objectContaining({
+      image: expect.any(String),
+      tags: expect.arrayContaining(['latest']),
+    }));
+    expect(res.body.docker).toHaveProperty('createdAt');
+    if (res.body.docker.createdAt !== null) {
+      expect(typeof res.body.docker.createdAt).toBe('string');
+    }
     expect(res.body.runtime).toEqual(expect.objectContaining({
       nodeVersion: process.version,
       environment: 'test',

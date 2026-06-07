@@ -10,6 +10,7 @@ const { getActiveSessions, killSession, isClientBlocked } = require('../sessions
 const { getRandomVideoTimemark, getThumbnailPath, generateVideoThumbnail, generatePhotoThumbnail } = require('../thumbnails');
 const { normalizeVisibility } = require('../visibility');
 const { parseVirtualMediaId, getStitchGroupPath } = require('../virtual-media');
+const { getDockerImageCreatedAt } = require('../image-metadata');
 const packageJson = require('../../package.json');
 
 const router = express.Router();
@@ -152,6 +153,28 @@ function getScanScheduleSummary(db) {
     nextDueAt: nextDue ? new Date(nextDue.atMs).toISOString() : null,
     nextDueLocation: nextDue ? nextDue.name : null,
   };
+}
+
+function parseSemver(version) {
+  const normalized = String(version || '').trim().replace(/^v/i, '');
+  const match = normalized.match(/^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/);
+  if (!match) return null;
+  return {
+    raw: normalized,
+    display: `v${normalized}`,
+    major: Number(match[1]),
+    minor: Number(match[2]),
+    patch: Number(match[3]),
+  };
+}
+
+function parseDockerTags(rawTags) {
+  const input = String(rawTags || '').trim();
+  if (!input) return [];
+  return input
+    .split(',')
+    .map(tag => String(tag || '').trim())
+    .filter(Boolean);
 }
 
 function normalizeEntriesInput(entries, fallbackPath) {
@@ -566,6 +589,17 @@ router.get('/system-info', (req, res) => {
   ]);
   const dbFileStats = fs.existsSync(DB_PATH) ? fs.statSync(DB_PATH) : null;
   const processMemory = process.memoryUsage();
+  const semver = parseSemver(process.env.OURTUBE_APP_VERSION || packageJson.version || '0.0.0')
+    || { raw: '0.0.0', display: 'v0.0.0', major: 0, minor: 0, patch: 0 };
+  const configuredImage = String(process.env.OURTUBE_DOCKER_IMAGE || '').trim();
+  const image = configuredImage || 'ghcr.io/hblanck/ourtube';
+  const envTags = parseDockerTags(process.env.OURTUBE_DOCKER_IMAGE_TAGS);
+  const createdAt = getDockerImageCreatedAt();
+  const tags = [...new Set([
+    ...envTags,
+    semver.display,
+    'latest',
+  ])];
   const library = db.prepare(
     `SELECT
         (SELECT COUNT(*) FROM source_locations) AS sourceLocations,
@@ -587,6 +621,11 @@ router.get('/system-info', (req, res) => {
       name: packageJson.name,
       version: packageJson.version,
       description: packageJson.description || '',
+    },
+    docker: {
+      image,
+      tags,
+      createdAt,
     },
     runtime: {
       nodeVersion: process.version,

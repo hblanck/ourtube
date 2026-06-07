@@ -790,18 +790,27 @@
   function fmtNodeVersion(version) {
     return String(version || '').replace(/^v/, '') || '—';
   }
+  function fmtImageCreatedAt(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return 'Unknown';
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) return 'Unknown';
+    return parsed.toLocaleString();
+  }
   function formatAppInfoTooltip(info) {
     if (!info || typeof info !== 'object') return '';
     const lines = [];
     const appName = String(info.app?.name || 'ourtube');
     const appVersion = String(info.app?.version || '').trim();
     const dockerImage = String(info.docker?.image || '').trim();
+    const dockerCreatedAt = String(info.docker?.createdAt || '').trim();
     const dockerTags = Array.isArray(info.docker?.tags)
       ? info.docker.tags.map(tag => String(tag || '').trim()).filter(Boolean)
       : [];
 
     lines.push(`${appName} ${appVersion}`.trim());
     if (dockerImage) lines.push(`Image: ${dockerImage}`);
+    lines.push(`Image created: ${fmtImageCreatedAt(dockerCreatedAt)}`);
     if (dockerTags.length) lines.push(`Tags: ${dockerTags.join(', ')}`);
     if (info.runtime?.nodeVersion) lines.push(`Node: ${String(info.runtime.nodeVersion).trim()}`);
     if (info.runtime?.environment) lines.push(`Environment: ${String(info.runtime.environment).trim()}`);
@@ -1041,6 +1050,7 @@
       const info = await res.json();
       const summaryCards = [
         renderSystemSummaryCard('Runtime', info.runtime?.environment || '—', `Node ${fmtNodeVersion(info.runtime?.nodeVersion)} on ${info.runtime?.platform || '—'}`),
+        renderSystemSummaryCard('Image', info.docker?.image || '—', `Built ${fmtImageCreatedAt(info.docker?.createdAt)}`),
         renderSystemSummaryCard('Media Mount', info.paths?.mediaRoot?.exists ? (info.paths?.mediaRoot?.writable ? 'Read / write' : 'Read only') : 'Missing', info.paths?.mediaRoot?.path || '—'),
         renderSystemSummaryCard('Data Volume', fmtStorageSummary(info.paths?.dataDir?.storage), `DB ${fmtSize(info.paths?.databaseFileSizeBytes)}`),
         renderSystemSummaryCard('Scan Scheduler', fmtScanSchedule(info.scan?.schedule), `${fmtInteger(info.scan?.schedule?.enabledLocations)} enabled source(s)`),
@@ -1049,6 +1059,9 @@
         renderSystemInfoCard('Application', [
           ['Name', info.app?.name],
           ['Version', info.app?.version],
+          ['Docker image', info.docker?.image],
+          ['Docker tags', Array.isArray(info.docker?.tags) ? info.docker.tags.join(', ') : '—'],
+          ['Image created', fmtImageCreatedAt(info.docker?.createdAt)],
           ['Environment', info.runtime?.environment],
           ['Node.js', info.runtime?.nodeVersion],
           ['Uptime', fmtUptime(info.runtime?.uptimeSeconds)],

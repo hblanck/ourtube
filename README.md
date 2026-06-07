@@ -204,6 +204,8 @@ OurTube now uses semantic versioning in `major.minor.patch` format.
 
 Recommended approach: keep version bumps manual at release time (clear human intent), while keeping image builds/tags automated in CI.
 
+Docker image creation time shown in the UI/Admin infrastructure is derived at runtime from metadata baked into the container image during `docker build`.
+
 ## OpenTelemetry (Observability)
 
 OurTube includes built-in [OpenTelemetry](https://opentelemetry.io/) support for traces and metrics. It is **disabled by default** and only activates when `OTEL_EXPORTER_OTLP_ENDPOINT` is set to a non-empty value.

@@ -22,6 +22,7 @@ const {
 } = require('../visibility');
 const { isAdminAuthenticated } = require('../admin-auth');
 const telemetry = require('../telemetry');
+const { getDockerImageCreatedAt } = require('../image-metadata');
 
 const router = express.Router();
 
@@ -241,6 +242,7 @@ router.get('/app-info', (_req, res) => {
   const configuredImage = String(process.env.OURTUBE_DOCKER_IMAGE || '').trim();
   const image = configuredImage || 'ghcr.io/hblanck/ourtube';
   const envTags = parseDockerTags(process.env.OURTUBE_DOCKER_IMAGE_TAGS);
+  const createdAt = getDockerImageCreatedAt();
   const tags = [...new Set([
     ...envTags,
     semver.display,
@@ -261,6 +263,7 @@ router.get('/app-info', (_req, res) => {
     docker: {
       image,
       tags,
+      createdAt,
     },
     runtime: {
       nodeVersion: process.version,

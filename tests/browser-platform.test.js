@@ -134,6 +134,10 @@ describe('GET /api/ui-settings', () => {
         image: expect.any(String),
         tags: expect.arrayContaining(['latest']),
       }));
+      expect(res.body.docker).toHaveProperty('createdAt');
+      if (res.body.docker.createdAt !== null) {
+        expect(typeof res.body.docker.createdAt).toBe('string');
+      }
     });
   });
 });

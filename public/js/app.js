@@ -242,12 +242,21 @@
     const appName = String(info.app?.name || 'ourtube');
     const appVersion = String(info.app?.version || '').trim();
     const dockerImage = String(info.docker?.image || '').trim();
+    const dockerCreatedAt = String(info.docker?.createdAt || '').trim();
     const dockerTags = Array.isArray(info.docker?.tags)
       ? info.docker.tags.map(tag => String(tag || '').trim()).filter(Boolean)
       : [];
 
+    const imageCreatedDisplay = (() => {
+      if (!dockerCreatedAt) return 'Unknown';
+      const parsed = new Date(dockerCreatedAt);
+      if (Number.isNaN(parsed.getTime())) return 'Unknown';
+      return parsed.toLocaleString();
+    })();
+
     lines.push(`${appName} ${appVersion}`.trim());
     if (dockerImage) lines.push(`Image: ${dockerImage}`);
+    lines.push(`Image created: ${imageCreatedDisplay}`);
     if (dockerTags.length) lines.push(`Tags: ${dockerTags.join(', ')}`);
     if (info.runtime?.nodeVersion) lines.push(`Node: ${String(info.runtime.nodeVersion).trim()}`);
     if (info.runtime?.environment) lines.push(`Environment: ${String(info.runtime.environment).trim()}`);
