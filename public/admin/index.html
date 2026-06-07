@@ -735,6 +735,10 @@
     </div>
   </div>
 
+  <footer class="app-info-footer">
+    <span id="app-info-footer-text">OurTube</span>
+  </footer>
+
 
   <script src="/js/admin-mode.js"></script>
   <script>
@@ -785,6 +789,61 @@
   }
   function fmtNodeVersion(version) {
     return String(version || '').replace(/^v/, '') || '—';
+  }
+  function formatAppInfoTooltip(info) {
+    if (!info || typeof info !== 'object') return '';
+    const lines = [];
+    const appName = String(info.app?.name || 'ourtube');
+    const appVersion = String(info.app?.version || '').trim();
+    const dockerImage = String(info.docker?.image || '').trim();
+    const dockerTags = Array.isArray(info.docker?.tags)
+      ? info.docker.tags.map(tag => String(tag || '').trim()).filter(Boolean)
+      : [];
+
+    lines.push(`${appName} ${appVersion}`.trim());
+    if (dockerImage) lines.push(`Image: ${dockerImage}`);
+    if (dockerTags.length) lines.push(`Tags: ${dockerTags.join(', ')}`);
+    if (info.runtime?.nodeVersion) lines.push(`Node: ${String(info.runtime.nodeVersion).trim()}`);
+    if (info.runtime?.environment) lines.push(`Environment: ${String(info.runtime.environment).trim()}`);
+
+    return lines.join('\n');
+  }
+  function formatFooterInfo(info) {
+    const appVersion = String(info?.app?.version || '').trim();
+    const parts = [];
+    if (appVersion) parts.push(`OurTube ${appVersion}`);
+    parts.push('Copyright (c) 2026, Howie Blanck');
+    return parts.join(' · ');
+  }
+  function applyAppInfoTooltip(info) {
+    const tooltip = formatAppInfoTooltip(info);
+    document.querySelectorAll('.logo').forEach(logo => {
+      if (!tooltip) {
+        logo.classList.remove('has-app-tooltip');
+        logo.removeAttribute('data-app-tooltip');
+        logo.removeAttribute('title');
+        return;
+      }
+      logo.classList.add('has-app-tooltip');
+      logo.removeAttribute('title');
+      logo.setAttribute('data-app-tooltip', tooltip);
+    });
+
+    const footer = document.getElementById('app-info-footer-text');
+    if (footer) {
+      const footerText = formatFooterInfo(info);
+      if (footerText) footer.textContent = footerText;
+    }
+  }
+  async function loadAppInfoTooltip() {
+    try {
+      const res = await fetch('/api/app-info');
+      if (!res.ok) return;
+      const info = await res.json();
+      applyAppInfoTooltip(info);
+    } catch {
+      // ignore
+    }
   }
   function fmtScanSchedule(schedule) {
     if (!schedule || !schedule.enabledLocations) return 'No enabled sources';
@@ -2776,6 +2835,7 @@
 
   // ── Init ─────────────────────────────────────────────────
   async function initAdmin() {
+    loadAppInfoTooltip();
     const hasAccess = await ensureAdminPageAccess();
     if (!hasAccess) return;
     loadDashboard();
