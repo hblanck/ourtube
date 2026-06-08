@@ -59,7 +59,10 @@ function toPosixPath(p) {
 
 function normalizeEntryPath(inputPath) {
   const resolved = toPosixPath(path.resolve(String(inputPath || '').trim()));
-  return resolved.length > 1 ? resolved.replace(/\/+$/, '') : resolved;
+  if (resolved.length <= 1) return resolved;
+  let end = resolved.length;
+  while (end > 1 && resolved.charCodeAt(end - 1) === 47) end -= 1;
+  return end === resolved.length ? resolved : resolved.slice(0, end);
 }
 
 function findContainingMediaRoot(targetPath) {
