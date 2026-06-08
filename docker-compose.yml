@@ -18,9 +18,11 @@ services:
       - "${PORT:-3000}:${PORT:-3000}"
     volumes:
       - ourtube-data:/data
-      - ${NAS_SHARE_PATH:-/mnt/nas}:/media:ro   # Mount NAS shares here (read-only)
+      - ${NAS_SHARE_PATH:-/mnt/nas}:/media/share1:ro   # Add more mounts as /media/shareN
+      # - ${NAS_SHARE_2_PATH:-/mnt/nas2}:/media/share2:ro
     environment:
       - DATA_DIR=/data
+      - SOURCE_LOCATION_ROOTS=${SOURCE_LOCATION_ROOTS:-/media/share1} # e.g. /media/share1,/media/share2
       - PORT=${PORT:-3000}
       - OURTUBE_APP_VERSION=${OURTUBE_APP_VERSION:-}
       - OURTUBE_DOCKER_IMAGE=${OURTUBE_DOCKER_IMAGE:-ghcr.io/hblanck/ourtube}

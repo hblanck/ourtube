@@ -33,10 +33,12 @@ services:
       - "3000:3000"
     volumes:
       - ourtube-data:/data          # SQLite database + thumbnails
-      - ${NAS_SHARE_PATH:-/mnt/nas/videos}:/media:ro   # Mount your NAS share here (read-only!)
+      - ${NAS_SHARE_PATH:-/mnt/nas/videos}:/media/share1:ro   # Add more shares as /media/shareN
+      # - ${NAS_SHARE_2_PATH:-/mnt/nas/photos}:/media/share2:ro
     environment:
       - PORT=3000
       - DATA_DIR=/data
+      - SOURCE_LOCATION_ROOTS=/media/share1   # Example: /media/share1,/media/share2
       - ADMIN_SESSION_COOKIE_SECURE=false
       - FACE_DETECTION_ENABLED=false
     restart: unless-stopped
@@ -54,7 +56,7 @@ For development with automatic image rebuild/restart when app files change:
 docker compose up --watch
 ```
 
-Then open **http://localhost:3000** in your browser and go to **Admin → Source Locations** to add `/media` (or any path you mounted).
+Then open **http://localhost:3000** in your browser and go to **Admin → Source Locations** to add directories from your configured roots (for example `/media/share1`).
 
 ### Admin Session Cookie Security (Important)
 
@@ -170,7 +172,8 @@ Important persistence note:
 |---|---|---|
 | `PORT` | `3000` | HTTP port |
 | `DATA_DIR` | `/data` | Where to store the SQLite database and thumbnails |
-| `NAS_SHARE_PATH` | `/mnt/nas/videos` | Host path to your mounted NAS/media share |
+| `NAS_SHARE_PATH` | `/mnt/nas/videos` | Host path for the first mounted NAS/media share |
+| `SOURCE_LOCATION_ROOTS` | `/media/share1` | Comma-separated in-container roots available in Admin source browser (e.g. `/media/share1,/media/share2`) |
 | `FACE_DETECTION_ENABLED` | `false` | Enable face detection (requires models in `$DATA_DIR/models/`) |
 | `STITCHED_PREFER_COMPATIBILITY` | _(auto)_ | Override stitched playback mode selection: `true` prefers compatibility streams, `false` prefers low-CPU concat first; default is concat-first |
 | `OURTUBE_APP_VERSION` | `package.json` version | Optional version override shown in UI/API app info tooltip/footer (expects semver, e.g. `1.2.3`) |

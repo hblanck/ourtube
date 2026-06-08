@@ -14,7 +14,24 @@ const { getDockerImageCreatedAt } = require('../image-metadata');
 const packageJson = require('../../package.json');
 
 const router = express.Router();
-const MEDIA_ROOT = path.resolve('/media');
+const DEFAULT_MEDIA_ROOT = path.resolve('/media');
+const MEDIA_ROOTS = (() => {
+  const raw = String(process.env.SOURCE_LOCATION_ROOTS || DEFAULT_MEDIA_ROOT);
+  const uniqueRoots = [];
+  const seen = new Set();
+  for (const part of raw.split(',')) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    const resolved = toPosixPath(path.resolve(trimmed));
+    const key = resolved.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    uniqueRoots.push(resolved);
+  }
+  if (!uniqueRoots.length) uniqueRoots.push(DEFAULT_MEDIA_ROOT);
+  return uniqueRoots;
+})();
+const PRIMARY_MEDIA_ROOT = MEDIA_ROOTS[0];
 const DATA_DIR = path.resolve(process.env.DATA_DIR || '/data');
 const DB_PATH = path.join(DATA_DIR, 'ourtube.db');
 const MEDIA_FILE_EXTENSIONS = new Set([
@@ -40,9 +57,25 @@ function toPosixPath(p) {
   return p.replace(/\\/g, '/');
 }
 
-function isWithinMediaRoot(targetPath) {
-  const rel = path.relative(MEDIA_ROOT, targetPath);
-  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+function normalizeEntryPath(inputPath) {
+  const resolved = toPosixPath(path.resolve(String(inputPath || '').trim()));
+  return resolved.length > 1 ? resolved.replace(/\/+$/, '') : resolved;
+}
+
+function findContainingMediaRoot(targetPath) {
+  const absoluteTarget = path.resolve(targetPath);
+  let matchedRoot = null;
+  for (const rootPath of MEDIA_ROOTS) {
+    const rel = path.relative(rootPath, absoluteTarget);
+    const withinRoot = rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+    if (!withinRoot) continue;
+    if (!matchedRoot || rootPath.length > matchedRoot.length) matchedRoot = rootPath;
+  }
+  return matchedRoot;
+}
+
+function isWithinMediaRoots(targetPath) {
+  return Boolean(findContainingMediaRoot(targetPath));
 }
 
 function isMediaFilePath(filePath) {
@@ -188,7 +221,7 @@ function normalizeEntriesInput(entries, fallbackPath) {
   const normalized = [];
 
   for (const entry of raw) {
-    const entryPath = String(entry?.path || '').trim();
+    const entryPath = normalizeEntryPath(entry?.path);
     if (!entryPath) continue;
 
     const key = entryPath.toLowerCase();
@@ -209,6 +242,40 @@ function normalizeEntriesInput(entries, fallbackPath) {
   }
 
   return normalized;
+}
+
+function getExistingLocationPathConflicts(db, normalizedEntries, excludeLocationId = null) {
+  if (!normalizedEntries.length) return [];
+
+  const requestedByKey = new Set(
+    normalizedEntries.map(entry => normalizeEntryPath(entry.path).toLowerCase())
+  );
+  const locations = getLocationsWithEntries(db);
+  const conflicts = [];
+  const seen = new Set();
+
+  for (const location of locations) {
+    if (excludeLocationId != null && Number(location.id) === Number(excludeLocationId)) continue;
+
+    const existingEntries = Array.isArray(location.entries) && location.entries.length
+      ? location.entries
+      : (location.path ? [{ path: location.path, type: 'directory' }] : []);
+
+    for (const entry of existingEntries) {
+      const normalizedPath = normalizeEntryPath(entry.path);
+      const key = normalizedPath.toLowerCase();
+      if (!requestedByKey.has(key) || seen.has(key)) continue;
+
+      seen.add(key);
+      conflicts.push({
+        path: normalizedPath,
+        locationId: Number(location.id),
+        locationName: location.name,
+      });
+    }
+  }
+
+  return conflicts;
 }
 
 function getLocationsWithEntries(db) {
@@ -352,15 +419,16 @@ function exportDatabaseSql(db) {
   return `${chunks.join('\n\n')}\n`;
 }
 
-// GET /api/admin/media-root/browse?path=/media/subdir
+// GET /api/admin/media-root/browse?path=/media/share1/subdir
 router.get('/media-root/browse', (req, res) => {
   const requestedPath = typeof req.query.path === 'string' && req.query.path.trim()
     ? req.query.path.trim()
-    : MEDIA_ROOT;
+    : PRIMARY_MEDIA_ROOT;
 
   const absolutePath = path.resolve(requestedPath);
-  if (!isWithinMediaRoot(absolutePath)) {
-    return res.status(400).json({ error: 'Path must be within /media' });
+  const mediaRoot = findContainingMediaRoot(absolutePath);
+  if (!mediaRoot) {
+    return res.status(400).json({ error: 'Path must be within a configured source root' });
   }
 
   if (!fs.existsSync(absolutePath)) {
@@ -390,12 +458,13 @@ router.get('/media-root/browse', (req, res) => {
       .filter(file => isMediaFilePath(file.path))
       .sort((a, b) => a.name.localeCompare(b.name));
 
-    const parentPath = absolutePath === MEDIA_ROOT ? null : path.dirname(absolutePath);
+    const parentPath = absolutePath === mediaRoot ? null : path.dirname(absolutePath);
 
     res.json({
-      root: toPosixPath(MEDIA_ROOT),
+      root: toPosixPath(mediaRoot),
+      roots: MEDIA_ROOTS,
       current: toPosixPath(absolutePath),
-      parent: parentPath && isWithinMediaRoot(parentPath) ? toPosixPath(parentPath) : null,
+      parent: parentPath && isWithinMediaRoots(parentPath) ? toPosixPath(parentPath) : null,
       directories,
       files
     });
@@ -650,7 +719,8 @@ router.get('/system-info', (req, res) => {
     paths: {
       dataDir: buildPathSummary(DATA_DIR),
       database: buildPathSummary(DB_PATH),
-      mediaRoot: buildPathSummary(MEDIA_ROOT),
+      mediaRoot: buildPathSummary(PRIMARY_MEDIA_ROOT),
+      mediaRoots: MEDIA_ROOTS.map(rootPath => buildPathSummary(rootPath)),
       databaseFileSizeBytes: dbFileStats ? dbFileStats.size : null,
     },
     features: {
@@ -683,6 +753,14 @@ router.post('/locations', (req, res) => {
   const normalizedEntries = normalizeEntriesInput(entries, locPath);
   if (!name || !normalizedEntries.length) {
     return res.status(400).json({ error: 'name and at least one path entry are required' });
+  }
+  const outsideRootEntry = normalizedEntries.find(entry => !isWithinMediaRoots(entry.path));
+  if (outsideRootEntry) {
+    return res.status(400).json({ error: `Entry path must be within configured source roots: ${outsideRootEntry.path}` });
+  }
+  const pathConflicts = getExistingLocationPathConflicts(db, normalizedEntries);
+  if (pathConflicts.length) {
+    return res.status(409).json({ error: 'One or more paths are already used by another source location', conflicts: pathConflicts });
   }
 
   const createTx = db.transaction(() => {
@@ -719,6 +797,16 @@ router.put('/locations/:id', (req, res) => {
   const normalizedEntries = hasEntriesPayload ? normalizeEntriesInput(entries, locPath) : null;
   if (hasEntriesPayload && !normalizedEntries.length) {
     return res.status(400).json({ error: 'at least one path entry is required' });
+  }
+  if (normalizedEntries) {
+    const outsideRootEntry = normalizedEntries.find(entry => !isWithinMediaRoots(entry.path));
+    if (outsideRootEntry) {
+      return res.status(400).json({ error: `Entry path must be within configured source roots: ${outsideRootEntry.path}` });
+    }
+    const pathConflicts = getExistingLocationPathConflicts(db, normalizedEntries, req.params.id);
+    if (pathConflicts.length) {
+      return res.status(409).json({ error: 'One or more paths are already used by another source location', conflicts: pathConflicts });
+    }
   }
 
   const updateTx = db.transaction(() => {

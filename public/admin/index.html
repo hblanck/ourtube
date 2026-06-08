@@ -520,7 +520,7 @@
         <div class="form-group">
           <label class="form-label">Collection Entries <span class="required-indicator">*</span></label>
           <div class="admin-actions-row">
-            <input type="text" id="location-entry-path" class="form-input form-flex-1 form-minw-280" placeholder="/media/nas/videos or /media/nas/videos/file.mp4" />
+            <input type="text" id="location-entry-path" class="form-input form-flex-1 form-minw-280" placeholder="/media/share1/videos or /media/share1/videos/file.mp4" />
             <select id="location-entry-type" class="form-select form-select-max-140">
               <option value="directory">Folder</option>
               <option value="file">File</option>
@@ -530,7 +530,7 @@
           <div class="admin-actions-row admin-actions-row-mt-8">
             <button type="button" class="btn btn-secondary btn-small" onclick="openPathBrowser(null, 'directory')">Browse Folder</button>
             <button type="button" class="btn btn-secondary btn-small" onclick="openPathBrowser(null, 'file')">Browse File</button>
-            <span class="admin-meta-text">Mix folders and individual files under <code>/media</code></span>
+            <span class="admin-meta-text">Mix folders and individual files across configured source roots.</span>
           </div>
           <div id="location-entries-list" class="admin-list-gap-top"></div>
           <div id="path-browser" class="path-browser hidden">
@@ -541,6 +541,7 @@
                 <button type="button" class="btn btn-small" onclick="closePathBrowser()">Close</button>
               </div>
             </div>
+            <div id="path-browser-roots" class="admin-actions-row admin-actions-row-mt-8"></div>
             <div id="path-browser-list" class="path-browser-list"></div>
           </div>
         </div>
@@ -1498,7 +1499,7 @@
     locationEntries = [];
     stitchPromptShown = false;
     renderLocationEntries();
-    document.getElementById('location-entry-path').value = '/media';
+    document.getElementById('location-entry-path').value = '';
     document.getElementById('location-entry-type').value = 'directory';
     closePathBrowser();
     openModal('location-modal');
@@ -1529,9 +1530,26 @@
     openModal('location-modal');
   }
 
-  // /media path browser for source location picker
-  let pathBrowserCurrent = '/media';
+  // source-root path browser for source location picker
+  let pathBrowserCurrent = '';
+  let pathBrowserRoots = [];
   let pathBrowserSelectType = 'directory';
+
+  function renderPathBrowserRoots(activeRoot) {
+    const rootList = document.getElementById('path-browser-roots');
+    if (!rootList) return;
+    rootList.innerHTML = '';
+    if (!Array.isArray(pathBrowserRoots) || pathBrowserRoots.length <= 1) return;
+
+    pathBrowserRoots.forEach(rootPath => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = rootPath === activeRoot ? 'btn btn-small btn-primary' : 'btn btn-small btn-secondary';
+      btn.textContent = rootPath;
+      btn.addEventListener('click', () => loadPathBrowser(rootPath));
+      rootList.appendChild(btn);
+    });
+  }
 
   async function openPathBrowser(startPath, selectType = 'directory') {
     const browser = document.getElementById('path-browser');
@@ -1539,7 +1557,7 @@
     pathBrowserSelectType = selectType === 'file' ? 'file' : 'directory';
     const useBtn = document.getElementById('path-browser-use-current');
     useBtn.textContent = pathBrowserSelectType === 'file' ? 'Use Current Path as File' : 'Use This Folder';
-    const targetPath = startPath || pathBrowserCurrent || '/media';
+    const targetPath = startPath || pathBrowserCurrent || pathBrowserRoots[0] || '/media';
     await loadPathBrowser(targetPath);
   }
 
@@ -1547,9 +1565,11 @@
     const browser = document.getElementById('path-browser');
     const list = document.getElementById('path-browser-list');
     const current = document.getElementById('path-browser-current');
+    const roots = document.getElementById('path-browser-roots');
     browser.style.display = 'none';
     list.innerHTML = '';
     current.textContent = '';
+    roots.innerHTML = '';
   }
 
   async function loadPathBrowser(targetPath) {
@@ -1565,7 +1585,11 @@
       }
 
       pathBrowserCurrent = data.current;
+      pathBrowserRoots = Array.isArray(data.roots) && data.roots.length
+        ? data.roots
+        : [data.root || '/media'];
       current.textContent = data.current;
+      renderPathBrowserRoots(data.root);
       list.innerHTML = '';
 
       if (data.parent) {
@@ -1642,10 +1666,13 @@
       stitch_directories: form.querySelector('[name=stitch_directories]').checked ? 1 : 0,
       enabled: form.querySelector('[name=enabled]').checked ? 1 : 0
     };
-    if (id) {
-      await fetch(`/api/admin/locations/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
-    } else {
-      await fetch('/api/admin/locations', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const response = id
+      ? await fetch(`/api/admin/locations/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) })
+      : await fetch('/api/admin/locations', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      alert(payload.error || 'Failed to save source location.');
+      return;
     }
     closeModal('location-modal');
     loadLocations();
